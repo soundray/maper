@@ -1,0 +1,5 @@
+/home/rolf/Research/Experiments/maper/refactoring-201409/maperutil/t1/a
+/home/rolf/Research/Experiments/maper/refactoring-201409/maperutil/t1/b
+/home/rolf/Research/Experiments/maper/refactoring-201409/maperutil/t1/c
+/home/rolf/Research/Experiments/maper/refactoring-201409/maperutil/t1/d
+/home/rolf/Research/Experiments/maper/refactoring-201409/maperutil/t1/e

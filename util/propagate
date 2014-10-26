@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+maper=$(dirname "$0")
+. "$maper"/maper.rc
+. "$maper"/common
+maper=$(normalpath "$maper")
+
+# parameters
+srcop=
+tgtop=
+srctc3=
+tgttc3=
+srcsegs=
+outdir=
+spn="$maper/neutral.dof.gz"
+tpn="$maper/neutral.dof.gz"
+
+while [ $# -gt 0 ]
+do
+    case "$1" in
+        -source)  srcop="$2"; shift;;
+	-target)  tgtop="$2"; shift;;
+	-srctc3)  srctc3="$2"; shift;;
+	-tgttc3)  tgttc3="$2"; shift;;
+	-spn)     spn="$2"; shift;;
+	-tpn)     tpn="$2"; shift;;
+	-srcseg)  srcsegs="$2"; shift;;
+	-outdir)  outdir="$2"; shift;;
+	--) shift; break;;
+	-*)
+	    echo >&2 \
+		    "Usage: $0 -source source-onepad.nii.gz -target target-onepad.nii.gz -srctc3 source-tc3.nii.gz -tgttc3 target-tc3.nii.gz -spn source-posnorm.dof -tpn target-posnorm.dof -srcseg \"source-segmentation-1.nii.gz [sourceseg-2.nii.gz ... ]\" -outdir output-directory"
+    exit 1;;
+*)  break;;# terminate while loop
+    esac
+    shift
+done
+
+test -e "$srcop" || fatal "Source $srcop not found"
+test -e "$tgtop" || fatal "Target $tgtop not found"
+test -e "$srctc3" || fatal "Source tissue map $srctc3 not found"
+test -e "$tgttc3" || fatal "Target tissue map $tgttc3 not found"
+for i in $srcsegs ; do test -e $i || fatal "Source seg $i does not exist" ; done
+test -e "$outdir" || mkdir -p "$outdir" 
+#tmptest=$(mktemp $outdir/propagate.XXXXX) || fatal "Output directory unwritable"
+
+# paths irtk, nifty, temporary
+: ${IRTK:=$irtk}
+: ${NIFTYREG:=$niftyreg}
+export PATH=$IRTK:$NIFTYREG:$PATH
+
+td=$(tempdir)
+trap 'rm -rf $td >/dev/null 2>&1' 0
+trap 'cp -r $td $outdir/' 1 2 3 13 15
+cd $td
+
+
+# Registration
+dofcombine "$spn" "$tpn" prealign.dof.gz -invert2
+dof2flirt prealign.dof.gz "$tgtop" "$srcop" flirt.raw
+resample "$srctc3" srctc3.nii.gz -size 2 2 2
+reg_aladin -target "$tgtop" -source "$srcop" -affFlirt flirt.raw -aff affine.txt
+reg_f3d -target "$tgttc3" -source srctc3.nii.gz -kld -ln 2 -sx 10 -aff affine.txt -cpp cpp10.nii.gz -result mrtr20.nii.gz 
+
+reg_f3d -target "$tgtop" -source "$srcop" -ln 3 -incpp cpp10.nii.gz -cpp cpp2.5.nii.gz -result mrtr2.5.nii.gz
+
+c=0
+mkdir autoseg
+for srcseg in $srcsegs ; do
+    (( c += 1 ))
+    dn=$(dirname $srcseg)
+    bn=${dn##*/}
+    mkdir autoseg/segtr-"$bn"
+    reg_resample -target "$tgtop" -source "$srcseg" -result autoseg/segtr-$bn/segtr-$bn.nii.gz -cpp cpp2.5.nii.gz -NN
+done
+
+mkdir trans
+cp cpp2.5.nii.gz trans/
+
+cp -r autoseg/* trans/* "$outdir"/
+
+# For debugging
+cp -r "$td" "$outdir"/
+
+exit 0
