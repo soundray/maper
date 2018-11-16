@@ -1,6 +1,10 @@
 #!/bin/bash
 
-# Sourced by segment, bex, tclass, atlasprop, propagate
+modules () {
+#    module load intel-suite
+#    module load fsl/5.0.1
+    return;
+}
 
 msg () {
     for msgline
@@ -15,7 +19,7 @@ tempdir () {
     tdbase=$TMPDIR/$USER
     test -e $tdbase || mkdir -p $tdbase
     td=$(mktemp -d $tdbase/$(basename $0).XXXXXX) || fatal "Could not create temp dir in $tdbase"
-    echo $td
+    echo "$td"
 }
 
 normalpath () {
@@ -24,7 +28,11 @@ normalpath () {
     echo $(cd $dir && pwd)/$bas
 }
 
-export PATH=/work/rahec/software/niftyreg-svn355/bin:$PATH
-export PATH=/work/rahec/software/niftyseg/bin:$PATH
+brake() { while true ; do j=$(jobs -r | wc -l) ; test $j -lt $1 && break ; done ; }
+
+modules
+
+export PATH=~/software/niftyreg/bin:$PATH
+export PATH=~/software/niftyseg/bin:$PATH
 
 set -e   # Terminate script at first error

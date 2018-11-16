@@ -1,83 +1,139 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-maper=$(dirname "$0")
-. "$maper"/maper.rc
-. "$maper"/common
-maper=$(normalpath "$maper")
+cdir=$(dirname "$0")
+. "$cdir"/maper.rc
+. "$cdir"/common
+cdir=$(normalpath "$cdir")
+
+pn=$0
+prog=$(basename "$pn")
+comline="$cdir/$prog $*"
 
 # parameters
 srcop=
 tgtop=
 srctc3=
 tgttc3=
-srcsegs=
+spn="$cdir"/neutral.dof.gz
+tpn="$cdir"/neutral.dof.gz
+type=
+isrcsegs=
 outdir=
+debugdir=
+ensemblesize=1
 while [ $# -gt 0 ]
 do
     case "$1" in
-        -source)  srcop="$2"; shift;;
-	-target)  tgtop="$2"; shift;;
-	-srctc3)  srctc3="$2"; shift;;
-	-tgttc3)  tgttc3="$2"; shift;;
-	-spn)     spn="$2"; shift;;
-	-tpn)     tpn="$2"; shift;;
-	-srcseg)  srcsegs="$2"; shift;;
-	-outdir)  outdir="$2"; shift;;
+        -source)               srcop="$2"; shift;;
+	-target)               tgtop="$2"; shift;;
+	-srctc3)              srctc3="$2"; shift;;
+	-tgttc3)              tgttc3="$2"; shift;;
+	-spn)                    spn="$2"; shift;;
+	-tpn)                    tpn="$2"; shift;;
+	-type)                  type="$2"; shift;;
+	-srcseg)            isrcsegs="$2 $isrcsegs"; shift;;
+	-refseg)            irefsegs="$2 $irefsegs"; shift;;
+	-ensemblesize)  ensemblesize="$2"; shift;;
+	-output)              outdir="$2"; shift;;
+	-debug)             debugdir="$2"; shift;;
 	--) shift; break;;
 	-*)
 	    echo >&2 \
-		    "Usage: $0 -source source-onepad.nii.gz -target target-onepad.nii.gz -srctc3 source-tc3.nii.gz -tgttc3 target-tc3.nii.gz -srcseg \"source-segmentation-1.nii.gz [sourceseg-2.nii.gz ... ]\" -outdir output-directory"
+		    "Usage: $0 -source source-onepad.nii.gz -target target-onepad.nii.gz -srctc3 source-tc3.nii.gz -tgttc3 target-tc3.nii.gz -spn source-posnorm.dof.gz -tpn target-posnorm.dof.gz -type [fast|standard|oldstandard|experimental] -srcseg source-segmentation-1.nii.gz [-srcseg sourceseg-2.nii.gz] [-refseg reference-segmentation-1.nii.gz] [-refseg reference-segmentation-2.nii.gz] -ensemblesize N -output directory -debug debug-directory"
     exit 1;;
 *)  break;;# terminate while loop
     esac
     shift
 done
 
+srcop=$(normalpath "$srcop")
 test -e "$srcop" || fatal "Source $srcop not found"
+tgtop=$(normalpath "$tgtop")
 test -e "$tgtop" || fatal "Target $tgtop not found"
+srctc3=$(normalpath "$srctc3")
 test -e "$srctc3" || fatal "Source tissue map $srctc3 not found"
+tgttc3=$(normalpath "$tgttc3")
 test -e "$tgttc3" || fatal "Target tissue map $tgttc3 not found"
-for i in $srcsegs ; do test -e $i || fatal "Source seg $i does not exist" ; done
-test -e "$outdir" || mkdir -p "$outdir" 
-#tmptest=$(mktemp $outdir/propagate.XXXXX) || fatal "Output directory unwritable"
-
-
-# paths irtk, nifty, temporary
-: ${IRTK:=$irtk}
-: ${NIFTYREG:=$niftyreg}
-export PATH=$IRTK:$NIFTYREG:$PATH
-
-td=$(tempdir)
-trap 'rm -rf $td >/dev/null 2>&1' 0
-trap 'cp -r $td $outdir/' 1 2 3 13 15
-cd $td
-
-
-# Registration
-dofcombine "$spn" "$tpn" prealign.dof.gz -invert2
-dof2flirt prealign.dof.gz "$tgtop" "$srcop" flirt.raw
-resample "$srctc3" srctc3.nii.gz -size 2 2 2
-reg_aladin -target "$tgtop" -source "$srcop" -affFlirt flirt.raw -aff affine.txt
-reg_f3d -target "$tgttc3" -source srctc3.nii.gz -kld -ln 2 -sx 10 -aff affine.txt -cpp cpp10.nii.gz -result mrtr20.nii.gz 
-
-reg_f3d -target "$tgtop" -source "$srcop" -ln 3 -incpp cpp10.nii.gz -cpp cpp2.5.nii.gz -result mrtr2.5.nii.gz
-
-c=0
-mkdir autoseg
-for srcseg in $srcsegs ; do
-    (( c += 1 ))
-    dn=$(dirname $srcseg)
-    bn=${dn##*/}
-    mkdir autoseg/segtr-"$bn"
-    reg_resample -target "$tgtop" -source "$srcseg" -result autoseg/segtr-$bn/segtr-$bn.nii.gz -cpp cpp2.5.nii.gz -NN
+spn=$(normalpath "$spn")
+test -e "$spn" || fatal "Source posnorm $spn not found"
+tpn=$(normalpath "$tpn")
+test -e "$tpn" || fatal "Target posnorm $tpn not found"
+srcsegs=""
+for i in $isrcsegs ; do
+    test -e $i || fatal "Source seg $i does not exist"
+    ii=$(normalpath $i)
+    srcsegs="$srcsegs $ii"
+done
+[[ "$srcsegs" == "" ]] && fatal "Source segmentations not set"
+refsegs=""
+for i in $irefsegs ; do
+    test -e $i || fatal "Reference seg $i does not exist"
+    ii=$(normalpath $i)
+    refsegs="$refsegs $ii"
 done
 
-mkdir trans
-cp cpp2.5.nii.gz trans/
+[[ $ensemblesize =~ ^[0-9]+$ ]] || fatal "Invalid ensemblesize parameter $ensemblesize"
 
-cp -r autoseg/* trans/* "$outdir"/
+outdir=$(normalpath "$outdir")
+test -e "$outdir" || mkdir -p "$outdir" || fatal "Creation of output directory $outdir failed" 
+outdirbase=$(normalpath "$outdir"/..)
+
+if ! [[ -e $debugdir ]] ; then
+    debugdir=
+    echo "Debug directory does not exist -- intermediate output will be discarded"
+fi
+debugdir=$(normalpath "$debugdir")
+
+# paths irtk, nifty, temporary
+: ${IRTK:="$irtk"}
+: ${NIFTYREG:="$niftyreg"}
+export PATH=$IRTK:$NIFTYREG:$PATH
+
+origwd="$PWD"
+td=$(tempdir)
+if [[ -z "$debugdir" ]] ; then
+    trap 'rm -rf $td >/dev/null 2>&1' 0 1 2 3 13 15
+else
+    trap 'cp -r $td $debugdir' 0 1 2 3 13 15
+fi
+
+origwd="$PWD"
+cd "$td"
+echo "$comline" > commandline.log
+
+# Before registration: pre-announce data coming to output directory
+mkdir -p "$outdir"/log
+for srcseg in $srcsegs ; do
+    dn=$(dirname "$srcseg")
+    bn=${dn##*/}
+    echo "$bn" >$outdir/log/segtr-"$bn".pre
+done
+
+# Registration
+"$cdir"/register -source "$srcop" -target "$tgtop" -srctc3 "$srctc3" -tgttc3 "$tgttc3" -spn "$spn" -tpn "$tpn" -trans "$PWD"/trans.nii.gz -type $type -debug "$debugdir" >"$td"/register.log 2>&1 
+
+# Transformation
+for srcseg in $srcsegs ; do
+    dn=$(dirname "$srcseg")
+    bn=${dn##*/}
+    mkdir -p segtr-"$bn"
+    "$cdir"/transform -target "$tgtop" -srcseg "$srcseg" -trans $PWD/trans.nii.gz -seg $PWD/segtr-"$bn" -debug "$debugdir"
+    mv $outdir/log/segtr-"$bn".pre $outdir/log/segtr-"$bn".rdy
+done >transformation.log 2>&1
+
+# Comparison with reference segmentations
+for refseg in $refsegs ; do
+    dn=$(dirname "$refseg")
+    bn=${dn##*/}
+    test -e $PWD/segtr-"$bn" && labelStats "$refseg" $PWD/segtr-"$bn"/seg.nii.gz -q | cut -d , -f 1 >$PWD/segtr-"$bn"/jaccard.csv
+done 2>comparison.err
+
+cp -r segtr-* "$outdir"
+mv "$outdir"/log/* "$outdir"/
+
+"$cdir"/fusion -ensemblesize $ensemblesize "$outdirbase"
 
 # For debugging
-cp -r "$td" "$outdir"/
+[[ -z "$debugdir" ]] || cp -r "$td" "$debugdir"
 
 exit 0

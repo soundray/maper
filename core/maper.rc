@@ -1,8 +1,14 @@
 # Where to find IRTK binaries (a previously set $IRTK overrides this)
-irtk=/work/rahec/software/irtk/linux/bin
+#irtk=/work/rahec/software/irtk/linux/bin
 
 # Where to find Nifty Reg binaries (a previously set $NIFTYREG overrides this)
 #niftyreg=/work/rahec/software/nifty-reg/svn-bin-nocuda
 #niftyreg=/work/rahec/software/mm-reg/niftyreg/nifty_reg/build/reg-apps
 #niftyreg=/work/rahec/software/nifty-reg/1.3-bin
 
+# Memory required (in MB, recommended: 1900 for normal target resolution; for highres targets set to 3900 or 7900)
+mem=3900
+
+# Minimal success rate in percent.
+# No fused output is produced if fewer than the set percentage of individual segmentations succeed.
+minsuccessrate=100
