@@ -1,10 +1,6 @@
 #!/bin/bash
 
-modules () {
-    module load intel-suite
-    module load fsl/5.0.8
-    return;
-}
+. /etc/fsl/5.0/fsl.sh
 
 msg () {
     for msgline
@@ -30,9 +26,7 @@ normalpath () {
 
 brake() { while true ; do j=$(jobs -r | wc -l) ; test $j -lt $1 && break ; done ; }
 
-modules
-
-export PATH=/work/rahec/software/niftyreg-svn355/bin:$PATH
-export PATH=/work/rahec/software/niftyseg/bin:$PATH
+export PATH=/home/rolf/software/niftyreg/niftyreg-svn355/build/reg-apps:$PATH
+export PATH=/home/rolf/software/niftyseg/bin:$PATH
 
 set -e   # Terminate script at first error
