@@ -1,0 +1,43 @@
+#!/bin/bash
+
+modules () {
+    module load intel-suite
+}
+
+msg () {
+    for msgline
+    do echo -e "$pname: $msgline" >&2
+    done
+}
+
+fatal () { msg "$@" ; exit 1 ; }
+
+usage() { fatal "$@" ; }
+
+tempdir () {
+    : ${TMPDIR:="/tmp"}
+    tdbase=$TMPDIR/$USER
+    test -e $tdbase || mkdir -p $tdbase
+    td=$(mktemp -d $tdbase/$(basename $0).XXXXXX) || fatal "Could not create temp dir in $tdbase"
+    echo $td
+}
+
+normalpath () {
+    local s="$1"
+    [[ ${#s} -lt 800 ]] || fatal "Option path too long"
+    [[ "$s" =~ ^[[:print:]]*$ ]] || fatal "Non-printables in path"
+    dir=$(dirname -- "$1")
+    bas=$(basename -- "$1")
+    echo $(cd $dir && pwd)/$bas
+}
+
+finish () {
+    [[ $savewd -eq 1 ]] || rm -rf "$td"
+    exit
+}
+
+modules
+
+export PATH=/work/rahec/software/nifty_reg/bin:$PATH
+
+set -e   # Terminate script at first error

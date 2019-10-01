@@ -1,0 +1,97 @@
+#!/bin/bash
+
+ppath=$(realpath "$0")
+pdir=$(dirname "$ppath")
+pname=$(basename "$ppath")
+
+set -e 
+
+. "$pdir"/common
+
+
+### Check for MIRTK and NiftySeg
+which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
+which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
+
+usage="Usage: $pname -src-base atlasdir/ -src-description atlases.csv -tgt-base targetdir/ -tgt-description targets.csv -run-name distinctname -launchlist file.sh"
+srcbase=
+srcdesc=
+tgtbase=
+tgtdesc=
+runid=
+launchlist=
+loocv=
+while [ $# -gt 0 ]
+do
+    case "$1" in
+	-src-base)               srcbase=$(realpath "$2") ; shift ;;
+	-src-description)        srcdesc=$(realpath "$2") ; shift ;;
+	-tgt-base)               tgtbase=$(realpath "$2") ; shift ;;
+	-tgt-description)        tgtdesc=$(realpath "$2") ; shift ;;
+	-output-dir)              outdir=$(realpath "$2") ; shift ;;
+	-launchlist)          launchlist=$(realpath "$2") ; shift ;;
+	-arch)                      arch=$2 ; shift ;;
+	-loocv)                    loocv=1 ;;
+	-*)
+	    fatal "Parameter error"
+    exit 1 ;;
+*)  break ;; # terminate while loop
+    esac
+    shift
+done
+
+[[ -e $srcbase ]] || srcbase=$(dirname "$srcdesc")
+[[ -e $tgtbase ]] || tgtbase=$(dirname "$tgtdesc")
+[[ -s $srcdesc ]] || fatal "$ppath: Source description $srcdesc does not exist \n$usage"
+[[ -s $tgtdesc ]] || fatal "$ppath: Target description $tgtdesc does not exist \n$usage"
+
+
+cseg=0
+set -- $(head -n 1 "$srcdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
+enns=$(seq $# 7 | tr '[0-9]' 'n')
+read eins zwei drei vier funf sechs sieben acht <<<$( echo $* $enns )
+srcargc=0
+set -- $(head -n 1 "$tgtdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
+enns=$(seq $# 7 | tr '[0-9]' 'n')
+read ett tva tre fyra fem sex sju atta <<<$( echo $* $enns)
+
+atlasn=$(tail -n +2  "$srcdesc" | wc -l)
+tail -n +2 "$srcdesc" | grep -v ^# | while IFS='\n' read srcline ; do
+    unset srcarr ; declare -A srcarr
+    read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
+    [[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) &&   srcid="${srcarr["id"]}" && unset srcarr["id"]
+    [[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) &&  srcmri="-srcmri $srcbase/${srcarr["mri"]}" && unset srcarr["mri"]
+    [[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && srcmask="-srcmask $srcbase/${srcarr["brainmask"]}" && unset srcarr["brainmask"]
+    [[ -n ${srcarr["onepad"]} ]]            && (( srcargc += 1 )) &&   srcop="-srcop ${srcarr["onepad"]}" && unset srcarr["onepad"]
+    [[ -n ${srcarr["pretransformation"]} ]] && (( srcargc += 1 )) &&     spn="-spn $srcbase/${srcarr["pretransformation"]}" && unset srcarr["pretransformation"]
+
+    tgtargc=0
+    tail -n +2  "$tgtdesc" | grep -v ^# | while IFS='\n' read tgtline ; do
+	unset tgtarr ; declare -A tgtarr
+	read tgtarr["$ett"] tgtarr["$tva"] tgtarr["$tre"] tgtarr["$fyra"] tgtarr["$fem"] tgtarr["$sex"] tgtarr["$sju"] tgtarr["$atta"] <<<$(echo $tgtline | tr ',' ' ')
+	[[ $loocv ]] && [[ $srcid == ${tgtarr["id"]} ]] && (( atlasn -= 1 )) && continue
+	[[ -n ${tgtarr["id"]} ]]                && (( tgtargc += 1 )) &&   tgtid="${tgtarr["id"]}" && unset tgtarr["id"]
+	[[ -n ${tgtarr["mri"]} ]]               && (( tgtargc += 1 )) &&  tgtmri="-tgtmri $tgtbase/${tgtarr["mri"]}" && unset tgtarr["mri"]
+	[[ -n ${tgtarr["brainmask"]} ]]         && (( tgtargc += 1 )) && tgtmask="-tgtmask $tgtbase/${tgtarr["brainmask"]}" && unset tgtarr["brainmask"]
+	[[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) &&   tgtop="-tgtop ${tgtarr["onepad"]}" && unset tgtarr["onepad"]
+	[[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) &&     tpn="-tpn $tgtbase/${tgtarr["pretransformation"]}" && unset tgtarr["pretransformation"]
+
+	srclabels=""
+	for i in ${!srcarr[@]} ; do
+	    [[ $i == "n" ]] && continue
+	    srclabels=$srclabels" -srclabels "$i:${srcarr["$i"]}" "
+	done
+
+	tgtlabels=""
+	for i in ${!tgtarr[@]} ; do
+	    [[ $i == "n" ]] && continue
+	    tgtlabels=$tgtlabels" -tgtlabels "$i:${tgtarr["$i"]}" "
+	done
+
+	$pdir/maper -dry-run -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
+	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$spn" "$tgtmri" "$tgtmask" "$tgtop" "$tpn" "$srclabels" "$tgtlabels" ) >/dev/null
+	echo $pdir/maper -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
+	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$spn" "$tgtmri" "$tgtmask" "$tgtop" "$tpn" "$srclabels" "$tgtlabels")
+    done 
+done >$launchlist
+
