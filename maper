@@ -15,11 +15,12 @@ startsec=$(date +%s)
 which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
 which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
-usage="
+usage() {
+    cat <<EOF
 MAPER - Calculate robust registration between a source-target pair, transform label images to target, 
-        fuse result from multiple transformations to same target if available.
+        fuse result from multiple transformations to same target if available. 
 
-Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -outdir /path/to/write/output
+Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -output-dir /path/to/write/output
 
 <source_spec> consists of one of
        [-srcop src-onepad.nii.gz]
@@ -27,7 +28,7 @@ or
        [-srcmri src-mri.nii.gz]
 plus
        [-srcmask src-brainmask.nii.gz]
-          If -srcmri is specified, it will be assumed that the MR image is skullstripped.
+          If -srcmri is specified without -srcmask, a skullstripped image is assumed..
           If -srcop is specified, its own masking takes precedence.
        [-srctc3raw src-three-tissue-class-probmap.nii.gz]
           If not provided, this will be calculated.
@@ -36,25 +37,32 @@ plus
        [-srclabels name1:labelset1.nii.gz]
        [-srclabels name2:labelset2.nii.gz] 
           Up to four allowed -- will be transformed according to registration result.
+
 <target_spec>
        [-tgtop tgt-onepad.nii.gz]
        [-tgtmri tgt-mri.nii.gz]
        [-tgtmask tgt-brainmask.nii.gz]
        [-tgttc3raw tgt-three-tissue-class-probmap.nii.gz]
-treated analogously.
+treated analogously to corresponding <source_spec> items.
        [-tpn pretransformation.dof.gz] \
           Obligatory if -spn specified. Either is ignored unless both are specified.
        [-tgtlabels name1:labelset1.nii.gz]
        [-tgtlabels name2:labelset2.nii.gz] 
           TODO These will be used as reference for overlap assessment of transformed labels
+
+       [-atlasn NN]
+          If NN source transformations are found for TargetID in -output-dir, 
+          label fusion will be performed.
        [-quicktest] 
           For accelerated run (very coarse result)
        [-dry-run] 
-          To test if options correctly specified
-       [-atlasn NN]
-          If this number of source transformations are found for TargetID in -outdir, 
-          label fusion will be performed.
+          Test if options correctly specified. Perform label fusion if -atlasn also 
+          specified.
+       [-debug]
+          To save temporary working directory to -output-dir
 "
+EOF
+}
 
 ### Parameters
 
@@ -75,6 +83,7 @@ tgttc3raw=null
 tpn=neutral.dof.gz
 outdir=$PWD/maper-$$
 atlasn=
+debug=
 while [ $# -gt 0 ]
 do
     case "$1" in
@@ -96,9 +105,9 @@ do
 	-atlasn)        atlasn="$2" ; shift ;;
 	-dry-run)       dryrun=1 ;;
 	-quicktest)  quicktest=1 ;;
+	-debug)          debug=1 ;;
 	-*)
-	    usage $usage
-    exit 1 ;;
+	    fatal $(usage) ;;
 *)  break ;; # terminate while loop
     esac
     shift
@@ -252,7 +261,7 @@ onepadgen() { ### Generate onepad images
 mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
 
 td=$(tempdir)
-#trap finish EXIT
+trap finish EXIT
 cd "$td"
 touch null
 cp "$pdir"/neutral.dof.gz .
@@ -268,7 +277,7 @@ cp "$srcmask" src/mask.nii.gz
 cp "$srctc3raw" src/tc3raw.nii.gz
 cp "$spn" src/pre.dof.gz
 onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
-    || fatal "Source image not set. Either [-srcop file] or [-srcmri file] must be provided on commandline."
+    || usage "Source image not set. Either [-srcop file] or [-srcmri file] must be provided on commandline."
 
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
@@ -276,7 +285,7 @@ cp "$tgtmask" tgt/mask.nii.gz
 cp "$tgttc3raw" tgt/tc3raw.nii.gz
 cp "$tpn" tgt/pre.dof.gz
 onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
-    || fatal "Target image not set. Either [-tgtop file] or [-tgtmri file] must be provided on commandline."
+    || usage "Target image not set. Either [-tgtop file] or [-tgtmri file] must be provided on commandline."
 
 ### Main routine
 
@@ -289,7 +298,7 @@ regprop "$td"/src "$td"/tgt "$td"/regout
 ### Stage out results
 cp -r regout/* "$outdir"/
 cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
-
+[[ $debug ]] && cp -a $td $outdir
 
 ### Fusion if numbers suffice
 if [[ $atlasn -ge 3 ]] ; then
@@ -300,8 +309,11 @@ if [[ $atlasn -ge 3 ]] ; then
 	    # fusion $* "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
 	    first=$1 ; shift
 	    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
-	    seg_LabFusion -in merged-$i.nii.gz -MV -out "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
+	    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
+	    seg_LabFusion -in merged-$i.nii.gz -MV -out $thisseg.nii.gz
 	    # aggregate-images majority $* -output "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
+	    ref=${targetseg[$i]} 
+	    [[ -s $ref ]] && seg_stats $ref -D $thisseg.nii.gz $thisseg.csv 
 	fi
     done
 fi
@@ -314,4 +326,3 @@ echo Runtime: $[$endsec-$startsec]
 echo
 
 # TODO: Compare individual output with reference and/or fused seg; compare fused seg with reference
-
