@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ppath=$(realpath "$0")
+ppath=$(realpath "$BASH_SOURCE")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
@@ -15,45 +15,89 @@ startsec=$(date +%s)
 which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
 which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
+usage="
+MAPER - Calculate robust registration between a source-target pair, transform label images to target, 
+        fuse result from multiple transformations to same target if available.
+
+Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -outdir /path/to/write/output
+
+<source_spec> consists of one of
+       [-srcop src-onepad.nii.gz]
+or
+       [-srcmri src-mri.nii.gz]
+plus
+       [-srcmask src-brainmask.nii.gz]
+          If -srcmri is specified, it will be assumed that the MR image is skullstripped.
+          If -srcop is specified, its own masking takes precedence.
+       [-srctc3raw src-three-tissue-class-probmap.nii.gz]
+          If not provided, this will be calculated.
+       [-spn pretransformation.dof.gz] 
+          This will be combined with the inverse of -tpn to achieve prealignment.
+       [-srclabels name1:labelset1.nii.gz]
+       [-srclabels name2:labelset2.nii.gz] 
+          Up to four allowed -- will be transformed according to registration result.
+<target_spec>
+       [-tgtop tgt-onepad.nii.gz]
+       [-tgtmri tgt-mri.nii.gz]
+       [-tgtmask tgt-brainmask.nii.gz]
+       [-tgttc3raw tgt-three-tissue-class-probmap.nii.gz]
+treated analogously.
+       [-tpn pretransformation.dof.gz] \
+          Obligatory if -spn specified. Either is ignored unless both are specified.
+       [-tgtlabels name1:labelset1.nii.gz]
+       [-tgtlabels name2:labelset2.nii.gz] 
+          TODO These will be used as reference for overlap assessment of transformed labels
+       [-quicktest] 
+          For accelerated run (very coarse result)
+       [-dry-run] 
+          To test if options correctly specified
+       [-atlasn NN]
+          If this number of source transformations are found for TargetID in -outdir, 
+          label fusion will be performed.
+"
 
 ### Parameters
 
-flag="fast"
+quicktest=
 srcop=null
 srcmri=null
 isrcsegs=
 srcmask=null
 nsrcsegs=0
+srctc3raw=null
+spn=neutral.dof.gz
 tgtop=null
 tgtmri=null
 tgtmask=null
 itgtsegs=
 ntgtsegs=0
+tgttc3raw=null
 tpn=neutral.dof.gz
-spn=neutral.dof.gz
-outdir=maper-$$
+outdir=$PWD/maper-$$
 atlasn=
 while [ $# -gt 0 ]
 do
     case "$1" in
+	-srcid)          srcid="$2" ; shift ;;
 	-srcop)          srcop=$(realpath "$2") ; shift ;;
 	-srcmri)        srcmri=$(realpath "$2") ; shift ;;
+	-srctc3)     srctc3raw=$(realpath "$2") ; shift ;;
 	-srcmask)      srcmask=$(realpath "$2") ; shift ;;
 	-srclabels)   isrcsegs="$isrcsegs "$2 ; (( nsrcsegs += 1 )) ; shift ;;
-	-srcid)          srcid="$2" ; shift ;;
+	-spn)              spn=$(realpath "$2") ; shift ;;
+	-tgtid)          tgtid="$2" ; shift ;;
 	-tgtop)          tgtop=$(realpath "$2") ; shift ;;
 	-tgtmri)        tgtmri=$(realpath "$2") ; shift ;;
+	-tgttc3)     tgttc3raw=$(realpath "$2") ; shift ;;
 	-tgtmask)      tgtmask=$(realpath "$2") ; shift ;;
 	-tgtlabels)   itgtsegs="$itgtsegs "$2 ; (( ntgtsegs += 1 )) ; shift ;;
-	-tgtid)          tgtid="$2" ; shift ;;
-	-spn)              spn=$(realpath "$2") ; shift ;;
 	-tpn)              tpn=$(realpath "$2") ; shift ;;
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
-	-dry-run)        dryrun=1 ;;
+	-dry-run)       dryrun=1 ;;
+	-quicktest)  quicktest=1 ;;
 	-*)
-	    echo >&2 \
-		    "Usage: $0 TODO"
+	    usage $usage
     exit 1 ;;
 *)  break ;; # terminate while loop
     esac
@@ -79,7 +123,7 @@ for i in $itgtsegs ; do
 done
 
 baseoutdir=$outdir
-[[ -n "$subdir" ]] && outdir="$outdir/$srcid-$tgtid"
+outdir="$outdir/$srcid-$tgtid"
 
 ### Functions
 
@@ -87,7 +131,8 @@ tc3() { ### Tissue classification
     local input=$(realpath "$1") ; shift
     local outdir=$(realpath "$1") ; shift
 
-    local tdl=$(mktemp -d tc3.XXXXX)
+    local bn=$(basename "$input")
+    local tdl=$(mktemp -d tc3."$bn".XXXXX)
     cd $tdl
 
     if [[ -n $dryrun ]] ; then
@@ -98,7 +143,12 @@ tc3() { ### Tissue classification
 
     seg_maths "$input"/mri.nii.gz brain
     seg_maths "$input"/mask.nii.gz mask
-    seg_EM -in brain -out tc3raw -bc_out bcout -nopriors 3 -mask mask
+
+    if [[ -s "$input"/tc3raw.nii.gz ]] ; then
+	cp "$input"/tc3raw.nii.gz tc3raw.nii.gz
+    else
+	seg_EM -in brain -out tc3raw -bc_out bcout -nopriors 3 -mask mask
+    fi
 
     # Generate crisp labels
     seg_maths tc3raw -tpmax -add mask crisp
@@ -124,11 +174,14 @@ regprop() {  ### Registration and label propagation
     local srcseg="$src"/srcseg.nii.gz
     local autosegdir="$outdir"/seg/
 
-    local tdl=$(mktemp -d tc3.XXXXX)
+    local tdl=$(mktemp -d regprop.XXXXX)
     cd "$tdl"
 
+    ds=2.5 ; [[ $quicktest ]] && ds=10
+
     if [[ -z $dryrun ]] ; then
-	cat >coarse-reg.par <<EOF 
+	if [[ ! -e "$dof" ]] ; then
+	    cat >coarse-reg.par <<EOF 
 Energy function = SIM[Similarity](I1, I4 o T) + SIM[Similarity](I2, I5 o T) + SIM[Similarity](I3, I6 o T) + BE[Bending energy](T)
 Similarity measure = SSD
 Bending energy weight = 1e-3
@@ -136,31 +189,30 @@ Strict step length range         = No
 Maximum streak of rejected steps = 2
 EOF
 
-	cat >fine-reg.par <<EOF 
+	    cat >fine-reg.par <<EOF 
 Strict step length range         = No
 Maximum streak of rejected steps = 2
 EOF
 
-	register \
-	    "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
-	    "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
-	    -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 3 -parin coarse-reg.par -ds 10
-	
-	if [[ ! "$flag" == "fast" ]] ; then
+	    compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
+	    register \
+		"$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
+		"$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
+		-dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 3 -parin coarse-reg.par -ds $ds
+	    
 	    register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-		-dofin coarse.dof.gz -dofout "$dof" -bg 0 -model FFD -levels 2 1 -parin fine-reg.par -ds 10
-	else
-	    cp coarse.dof.gz "$dof"
+		-dofin coarse.dof.gz -dofout "$dof" -bg 0 -model FFD -levels 2 1 -parin fine-reg.par -ds $ds
 	fi
     fi
 
-    c=0
-    for srcseg in $srcsegs ; do 
+    # c=0
+    for i in ${!sourceseg[@]} ; do
+	srcseg=${sourceseg["$i"]}
 	if [[ -s $srcseg ]] ; then 
-	    autoseg="$autosegdir"/$(basename $(dirname $srcseg))
-	    while [[ -e $autoseg.nii.gz ]] ; do (( c += 1 )) ; autoseg="$autoseg-$c" ; done
-	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg".nii.gz ; continue ; fi
-	    transform-image "$srcseg" "$autoseg".nii.gz -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN"
+	    autoseg="$autosegdir"/$i.nii.gz 
+	    [[ -e "$autoseg" ]] && continue
+	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
+	    transform-image $srcseg "$autoseg" -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN"
 	fi
     done
 
@@ -172,19 +224,17 @@ onepadgen() { ### Generate onepad images
     local mask=$(realpath "$1") ; shift
     local onepad=$(realpath "$1") ; shift
 
-    if [[ -s "$onepad" ]] ; then
-	[[ -s "$mri" ]] || calculate-element-wise "$onepad" -map 1 0 -o "$mri"
-	return
-    fi
-
-    tdl=$(mktemp -d onepadgen.XXXX)
+    local tdl=$(mktemp -d onepadgen.XXXX)
     cd $tdl
 
-    if [[ -s "$mask" ]] ; then
-	seg_maths "$mri" -bin mask.nii.gz
-	else
-	cp "$mask" mask.nii.gz
+    if [[ -s "$onepad" ]] ; then
+	[[ -s "$mri" ]] || calculate-element-wise "$onepad" -map 1 0 -o "$mri"
     fi
+
+    if [[ ! -s "$mask" ]] ; then
+	seg_maths "$mri" -bin "$mask"
+    fi
+    cp "$mask" mask.nii.gz
 
     if [[ -z $dryrun ]] ; then
 	[[ -s "$mri" ]] || return 1
@@ -207,16 +257,24 @@ cd "$td"
 touch null
 cp "$pdir"/neutral.dof.gz .
 mkdir -p tgt src regout/seg
+outdof="$outdir"/src-tgt.dof.gz
+[[ -e $outdof ]] && cp $outdof regout/
+set -- "$outdir"/seg/*
+[[ -e $1 ]] && cp $@ regout/seg/
 
 cp "$srcop" src/onepad.nii.gz
 cp "$srcmri" src/mri.nii.gz
 cp "$srcmask" src/mask.nii.gz
+cp "$srctc3raw" src/tc3raw.nii.gz
+cp "$spn" src/pre.dof.gz
 onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
     || fatal "Source image not set. Either [-srcop file] or [-srcmri file] must be provided on commandline."
 
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
 cp "$tgtmask" tgt/mask.nii.gz
+cp "$tgttc3raw" tgt/tc3raw.nii.gz
+cp "$tpn" tgt/pre.dof.gz
 onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
     || fatal "Target image not set. Either [-tgtop file] or [-tgtmri file] must be provided on commandline."
 
@@ -239,9 +297,9 @@ if [[ $atlasn -ge 3 ]] ; then
 	set -- "$baseoutdir"/*-$tgtid/seg/"$i".nii.gz
 	nready=$#
 	if [[ $nready -ge $atlasn ]] ; then
-	    fusion $* "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
+	    # fusion $* "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
 	    first=$1 ; shift
-	    seg_maths $first -merge 2 4 $* merged-$i.nii.gz
+	    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
 	    seg_LabFusion -in merged-$i.nii.gz -MV -out "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
 	    # aggregate-images majority $* -output "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
 	fi
@@ -254,3 +312,6 @@ endsec=$(date +%s)
 echo
 echo Runtime: $[$endsec-$startsec]
 echo
+
+# TODO: Compare individual output with reference and/or fused seg; compare fused seg with reference
+

@@ -12,7 +12,7 @@ msg () {
 
 fatal () { msg "$@" ; exit 1 ; }
 
-usage() { fatal "$@" ; }
+usage() { echo $usage ; fatal "$@" ; }
 
 tempdir () {
     : ${TMPDIR:="/tmp"}
