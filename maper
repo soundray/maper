@@ -53,6 +53,9 @@ treated analogously to corresponding <source_spec> items.
        [-atlasn NN]
           If NN source transformations are found for TargetID in -output-dir, 
           label fusion will be performed.
+       [-tc3out]
+          Raw three-class tissue probability map for target image will be saved 
+          (compressed file size is ca. 5 × input image)
        [-quicktest] 
           For accelerated run (very coarse result)
        [-dry-run] 
@@ -83,6 +86,7 @@ tgttc3raw=null
 tpn=neutral.dof.gz
 outdir=$PWD/maper-$$
 atlasn=
+tc3out=
 debug=
 while [ $# -gt 0 ]
 do
@@ -103,6 +107,7 @@ do
 	-tpn)              tpn=$(realpath "$2") ; shift ;;
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
+	-tc3out)        tc3out=1 ;;
 	-dry-run)       dryrun=1 ;;
 	-quicktest)  quicktest=1 ;;
 	-debug)          debug=1 ;;
@@ -256,6 +261,8 @@ onepadgen() { ### Generate onepad images
     cd ..
 }
 
+d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; } 
+
 ### Preparation: staging files and generating onepad images
 
 mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
@@ -296,24 +303,30 @@ regprop "$td"/src "$td"/tgt "$td"/regout
 
 
 ### Stage out results
+
 cp -r regout/* "$outdir"/
 cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $debug ]] && cp -a $td $outdir
+[[ $tc3out ]] && cp tgt/tc3raw.nii.gz $outdir/tgt-tc3raw.nii.gz
 
 ### Fusion if numbers suffice
+
 if [[ $atlasn -ge 3 ]] ; then
     for i in ${!sourceseg[@]} ; do
 	set -- "$baseoutdir"/*-$tgtid/seg/"$i".nii.gz
 	nready=$#
 	if [[ $nready -ge $atlasn ]] ; then
-	    # fusion $* "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
 	    first=$1 ; shift
 	    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
 	    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
 	    seg_LabFusion -in merged-$i.nii.gz -MV -out $thisseg.nii.gz
-	    # aggregate-images majority $* -output "$baseoutdir"/f$nready-"$i"-$tgtid.nii.gz
-	    ref=${targetseg[$i]} 
-	    [[ -s $ref ]] && seg_stats $ref -D $thisseg.nii.gz $thisseg.csv 
+	    ref=${targetseg["$i"]} 
+	    if [[ -s $ref ]] ; then
+		seg_stats $ref -d $thisseg.nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv 
+		( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do 
+			echo $region, $(d2j $dsc) ; done ) >$thisseg-indivjc.csv
+		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >$thisseg-meanjc.csv
+	    fi
 	fi
     done
 fi
@@ -321,8 +334,6 @@ fi
 
 
 endsec=$(date +%s)
-echo
-echo Runtime: $[$endsec-$startsec]
-echo
+msg "runtime: $[$endsec-$startsec] seconds"
 
 # TODO: Compare individual output with reference and/or fused seg; compare fused seg with reference
