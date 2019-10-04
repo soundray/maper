@@ -18,7 +18,7 @@ srcbase=
 srcdesc=
 tgtbase=
 tgtdesc=
-runid=
+outdir=$PWD
 launchlist=launchlist.sh
 loocv=
 threads=1
@@ -32,9 +32,9 @@ do
 	-tgt-base)               tgtbase=$(realpath "$2") ; shift ;;
 	-tgt-description)        tgtdesc=$(realpath "$2") ; shift ;;
 	-output-dir)              outdir=$(realpath "$2") ; shift ;;
-	-launchlist)          launchlist=$(realpath "$2") ; shift ;;
-	-threads)                threads=$2 ; shift ;;
-	-arch)                      arch=$2 ; shift ;;
+	-launchlist)          launchlist="$2") ; shift ;;
+	-threads)                threads="$2" ; shift ;;
+	-arch)                      arch="$2" ; shift ;;
 	-loocv)                    loocv=1 ;;
 	-fastmode)              fastmode=1 ;;
 	-quicktest)            quicktest=1 ;;
@@ -57,7 +57,7 @@ procs=$(nproc --all)
 [[ $threads =~ [0-9]?[0-9] ]] || usage "Threads must be a number smaller than $procs ($threads)"
 [[ $threads -gt $procs ]] && usage "Threads must be a number smaller than $procs ($threads)"
 
-cat /dev/null >$launchlist
+cat /dev/null >$launchlist || fatal "Could not write to $launchlist"
 
 cseg=0
 set -- $(head -n 1 "$srcdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
