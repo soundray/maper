@@ -23,21 +23,21 @@ Segmentation results are plausible even in severe brain atrophy.
 If you use this software in your own work, please acknowledge MAPER by
 citing
 
-    Heckemann, R. A., Keihaninejad, S., Aljabar, P., Rueckert, D.,
-    Hajnal, J. V., Hammers, A., May 2010. Improving intersubject image
-    registration using tissue-class information benefits robustness
-    and accuracy of multi-atlas based anatomical
-    segmentation. NeuroImage 51 (1),
-    221-227. http://dx.doi.org/10.1016/j.neuroimage.2010.01.072
+>    Heckemann, R. A., Keihaninejad, S., Aljabar, P., Rueckert, D.,
+>    Hajnal, J. V., Hammers, A., May 2010. Improving intersubject image
+>    registration using tissue-class information benefits robustness
+>    and accuracy of multi-atlas based anatomical
+>    segmentation. NeuroImage 51 (1),
+>    221-227. http://dx.doi.org/10.1016/j.neuroimage.2010.01.072
 
 
 MAPER is based on earlier work on multi-atlas based segmentation:
 
-    Heckemann, R. A., Hajnal, J. V., Aljabar, P., Rueckert, D.,
-    Hammers, A., October 2006. Automatic anatomical brain MRI
-    segmentation combining label propagation and decision
-    fusion. NeuroImage 33 (1),
-    115-126. http://dx.doi.org/10.1016/j.neuroimage.2006.05.061
+>    Heckemann, R. A., Hajnal, J. V., Aljabar, P., Rueckert, D.,
+>    Hammers, A., October 2006. Automatic anatomical brain MRI
+>    segmentation combining label propagation and decision
+>    fusion. NeuroImage 33 (1),
+>    115-126. http://dx.doi.org/10.1016/j.neuroimage.2006.05.061
     
 
 ### Platform
