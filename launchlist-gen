@@ -6,6 +6,7 @@ pname=$(basename "$ppath")
 
 set -e 
 
+. "$pdir"/generic-functions
 . "$pdir"/common
 
 
