@@ -11,8 +11,8 @@ set -e
 
 
 ### Check for MIRTK and NiftySeg
-which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
-which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
+type transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
+type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
 usage="Usage: $pname -src-base atlasdir/ -src-description atlases.csv -tgt-base targetdir/ -tgt-description targets.csv -output-dir distinctname -launchlist outputfile.sh [-threads 1] [-loocv] [-fastmode]"
 srcbase=

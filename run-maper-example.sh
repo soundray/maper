@@ -27,9 +27,9 @@ read reply
 echo
 
 ### Check for MAPER and dependencies
-which maper >/dev/null 2>&1 || fatal "MAPER not found. Please ensure maper is on executable path"
-which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
-which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
+type maper >/dev/null 2>&1 || fatal "MAPER not found. Please ensure maper is on executable path"
+type transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
+type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
 ### Download mini atlas
 atlas=mini-atlas-n7r95
@@ -37,7 +37,7 @@ if [[ ! -e $atlas.tar ]] ; then
     dlcommand="wget -O -"
     url=https://github.com/soundray/maper/releases/download/0.9.0-rc/$atlas.tar
     # url=https://soundray.org/maper/$atlas.tar
-    which wget >/dev/null 2>&1 || dlcommand="curl --output -"
+    type wget >/dev/null 2>&1 || dlcommand="curl --output -"
     $dlcommand $url >$atlas.tar || fatal "Download failed. wget or curl must be installed"
 fi
 [[ ! -e $atlas.tar ]] && fatal "No tarfile found -- something went wrong"

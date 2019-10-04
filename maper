@@ -13,8 +13,8 @@ startsec=$(date +%s)
 
 ### Check for MIRTK and NiftySeg
 
-which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path, e.g. by setting in $pdir/common"
-which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path, e.g. by setting in $pdir/common"
+type transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path, e.g. by setting in $pdir/common"
+type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path, e.g. by setting in $pdir/common"
 
 usage() {
     cat <<EOF
