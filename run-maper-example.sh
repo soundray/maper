@@ -35,8 +35,10 @@ which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_
 atlas=mini-atlas-n7r95
 if [[ ! -e $atlas.tar ]] ; then
     dlcommand="wget -O -"
+    url=https://github.com/soundray/maper/releases/download/0.9.0-rc/$atlas.tar
+    # url=https://soundray.org/maper/$atlas.tar
     which wget >/dev/null 2>&1 || dlcommand="curl --output -"
-    $dlcommand https://soundray.org/maper/$atlas.tar >$atlas.tar || fatal "Download failed. wget or curl must be installed"
+    $dlcommand $url >$atlas.tar || fatal "Download failed. wget or curl must be installed"
 fi
 [[ ! -e $atlas.tar ]] && fatal "No tarfile found -- something went wrong"
 
