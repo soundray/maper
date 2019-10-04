@@ -49,4 +49,4 @@ launchlist-gen \
     -tgt-base $atlas -tgt-description $atlas/test-target.csv \
     -launchlist launchlist.sh || fatal "Launchlist not generated"
 
-time cat launchlist.sh | cut -d ' ' -f 2- | xargs -L 1 -P 1 maper >maper.log
+time cat launchlist.sh | cut -d ' ' -f 2- | xargs -L 1 -P 1 maper | tee maper.log

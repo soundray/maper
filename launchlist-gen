@@ -32,7 +32,7 @@ do
 	-tgt-base)               tgtbase=$(realpath "$2") ; shift ;;
 	-tgt-description)        tgtdesc=$(realpath "$2") ; shift ;;
 	-output-dir)              outdir=$(realpath "$2") ; shift ;;
-	-launchlist)          launchlist="$2") ; shift ;;
+	-launchlist)          launchlist="$2" ; shift ;;
 	-threads)                threads="$2" ; shift ;;
 	-arch)                      arch="$2" ; shift ;;
 	-loocv)                    loocv=1 ;;

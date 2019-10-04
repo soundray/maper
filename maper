@@ -214,10 +214,12 @@ EOF
 	    register \
 		"$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
 		"$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
-		-dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 3 -parin coarse-reg.par -ds $ds
+		-dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 3 \
+		-parin coarse-reg.par -ds $ds | while read i ; do echo "[$srcid-$tgtid] $i" ; done
 	    
 	    register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-		-dofin coarse.dof.gz -dofout "$dof" -bg 0 -model FFD -levels 2 1 -parin fine-reg.par -ds $ds
+		     -dofin coarse.dof.gz -dofout "$dof" -bg 0 -model FFD -levels 2 1 -parin fine-reg.par -ds $ds \
+		| while read i ; do echo "[$srcid-$tgtid] $i" ; done
 	fi
     fi
 
@@ -265,7 +267,8 @@ onepadgen() { ### Generate onepad images
 
 d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; } 
 
-### Preparation: staging files and generating onepad images
+###
+msg "=== Preparation: staging files and generating onepad images ==="
 
 mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
 
@@ -298,9 +301,11 @@ onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
 
 ### Main routine
 
+echo "=== Generating tissue-class probability maps ==="
 tc3 src src
 tc3 tgt tgt
 
+echo "=== Registration and propagation ==="
 regprop "$td"/src "$td"/tgt "$td"/regout
 
 
