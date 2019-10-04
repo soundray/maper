@@ -1,0 +1,43 @@
+#!/bin/bash
+
+cdir=$(dirname "$0")
+. "$cdir"/maper.rc
+. "$cdir"/common
+cdir=$(normalpath "$cdir")
+
+#pn=$0
+#prog=$(basename "$pn")
+#comline="$cdir/$prog $*"
+
+# parameters
+while [ $# -gt 0 ]
+do
+    case "$1" in
+	-ensemblesize)   ensemblesize="$2"; shift;;
+	--) shift; break;;
+	-*)
+	    echo >&2 \
+		    "Usage: $0 -ensemblesize N inputdir"
+    exit 1;;
+*)  break;;# terminate while loop
+    esac
+    shift
+done
+
+inputdir="$1" ; shift
+inputdir=$(normalpath "$inputdir")
+
+cd "$inputdir"
+ls a*/*.pre >/dev/null 2>&1 && echo "Propagation failures!"
+
+minimum=$[$ensemblesize*$minsuccessrate/100]
+cat a*/*.rdy | sort | uniq |\
+    while read seg
+    do
+	set -- $(ls a*/segtr-"$seg"/seg.nii.gz)
+	[[ $# -lt $minimum ]] && continue
+	echo combineLabels f$#-"$seg".nii.gz $# $*
+	combineLabels f$#-"$seg".nii.gz $# $*
+    done
+
+exit 0

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+. /etc/fsl/5.0/fsl.sh
+
 msg () {
     for msgline
     do echo "$pn: $msgline" >&2
@@ -13,7 +15,7 @@ tempdir () {
     tdbase=$TMPDIR/$USER
     test -e $tdbase || mkdir -p $tdbase
     td=$(mktemp -d $tdbase/$(basename $0).XXXXXX) || fatal "Could not create temp dir in $tdbase"
-    echo $td
+    echo "$td"
 }
 
 normalpath () {
@@ -22,7 +24,9 @@ normalpath () {
     echo $(cd $dir && pwd)/$bas
 }
 
-export PATH=/work/rahec/software/niftyreg-svn355/bin:$PATH
-export PATH=/work/rahec/software/niftyseg/bin:$PATH
+brake() { while true ; do j=$(jobs -r | wc -l) ; test $j -lt $1 && break ; done ; }
+
+export PATH=/home/rolf/software/niftyreg/niftyreg-svn355/build/reg-apps:$PATH
+export PATH=/home/rolf/software/niftyseg/bin:$PATH
 
 set -e   # Terminate script at first error

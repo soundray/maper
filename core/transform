@@ -1,0 +1,73 @@
+#!/bin/bash
+
+cdir=$(dirname "$0")
+. "$cdir"/maper.rc
+. "$cdir"/common
+cdir=$(normalpath "$cdir")
+
+pn=$0
+prog=$(basename "$pn")
+comline="$cdir/$prog $*"
+
+# parameters
+tgtop=
+srcseg=
+trans=
+segout=
+debugdir=
+while [ $# -gt 0 ]
+do
+    case "$1" in
+	-target)   tgtop="$2"; shift;;
+	-srcseg)  srcseg="$2"; shift;;
+	-trans)    trans="$2"; shift;;
+	-seg)     segout="$2"; shift;;
+	-debug) debugdir="$2"; shift;;
+	--) shift; break;;
+	-*)
+	    echo >&2 "Usage: $0 -target target-onepad.nii.gz -srcseg source-segmentation.nii.gz -trans transformation.nii.gz -seg segmentation-output.nii.gz -debug debug-directory"
+	    exit 1;;
+	*)  break;;# terminate while loop
+    esac
+    shift
+done
+
+tgtop=$(normalpath "$tgtop")
+test -e "$tgtop" || fatal "Target $tgtop not found"
+
+srcseg=$(normalpath "$srcseg")
+test -e "$srcseg" || fatal "Target $srcseg not found"
+
+trans=$(normalpath "$trans")
+test -e "$trans" || fatal "Transformation $trans not found"
+
+segout=$(normalpath "$segout")/seg.nii.gz
+
+if ! [[ -e $debugdir ]] ; then
+    debugdir=
+    echo "Debug directory does not exist -- intermediate output will be discarded"
+fi
+debugdir=$(normalpath "$debugdir")
+
+# paths irtk, nifty, temporary
+: ${IRTK:="$irtk"}
+: ${NIFTYREG:="$niftyreg"}
+export PATH=$IRTK:$NIFTYREG:$PATH
+
+td=$(tempdir)
+if [[ -z "$debugdir" ]] ; then
+    trap 'rm -rf $td >/dev/null 2>&1' 0 1 2 3 13 15
+else
+    trap 'cp -r $td $debugdir' 0 1 2 3 13 15
+fi
+#origwd="$PWD"
+cd "$td"
+
+echo "$comline" >commandline.log
+
+reg_resample -target "$tgtop" -source "$srcseg" -cpp "$trans" -NN -result "$segout"
+
+# For debugging
+[[ -z "$debugdir" ]] || cp -r "$td" "$debugdir"
+
+exit 0
