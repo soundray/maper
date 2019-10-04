@@ -16,6 +16,8 @@ let
     "${pkgs.gnutar}/bin" # For example script to unpack sample data
     "${pkgs.findutils}/bin" # For xargs
     "${pkgs.gnugrep}/bin"
+    "${pkgs.gnused}/bin"
+    "${pkgs.bc}/bin"
   ];
 in pkgs.runCommandNoCC "maper-1.2.3" {
   meta = {
