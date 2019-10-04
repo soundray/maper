@@ -1,0 +1,119 @@
+#!/bin/bash
+
+ppath=$(realpath "$BASH_SOURCE")
+pdir=$(dirname "$ppath")
+pname=$(basename "$ppath")
+
+set -e 
+
+. "$pdir"/common
+
+
+### Check for MIRTK and NiftySeg
+which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
+which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
+
+usage="Usage: $pname -src-base atlasdir/ -src-description atlases.csv -tgt-base targetdir/ -tgt-description targets.csv -output-dir distinctname -launchlist outputfile.sh [-threads 1] [-loocv] [-fastmode]"
+srcbase=
+srcdesc=
+tgtbase=
+tgtdesc=
+outdir=$PWD
+launchlist=launchlist.sh
+loocv=
+threads=1
+fastmode=0
+quicktest=
+while [ $# -gt 0 ]
+do
+    case "$1" in
+	-src-base)               srcbase=$(realpath "$2") ; shift ;;
+	-src-description)        srcdesc=$(realpath "$2") ; shift ;;
+	-tgt-base)               tgtbase=$(realpath "$2") ; shift ;;
+	-tgt-description)        tgtdesc=$(realpath "$2") ; shift ;;
+	-output-dir)              outdir=$(realpath "$2") ; shift ;;
+	-launchlist)          launchlist="$2") ; shift ;;
+	-threads)                threads="$2" ; shift ;;
+	-arch)                      arch="$2" ; shift ;;
+	-loocv)                    loocv=1 ;;
+	-fastmode)              fastmode=1 ;;
+	-quicktest)            quicktest=1 ;;
+	-*)
+	    usage "Parameter error"
+    exit 1 ;;
+*)  break ;; # terminate while loop
+    esac
+    shift
+done
+
+[[ -e $srcbase ]] || srcbase=$(dirname "$srcdesc")
+[[ -e $tgtbase ]] || tgtbase=$(dirname "$tgtdesc")
+[[ -s $srcdesc ]] || usage "Source description $srcdesc does not exist"
+[[ -s $tgtdesc ]] || usage "Target description $tgtdesc does not exist"
+
+qt= ; [[ $quicktest ]] && qt="-quicktest"
+
+procs=$(nproc --all)
+[[ $threads =~ [0-9]?[0-9] ]] || usage "Threads must be a number smaller than $procs ($threads)"
+[[ $threads -gt $procs ]] && usage "Threads must be a number smaller than $procs ($threads)"
+
+cat /dev/null >$launchlist || fatal "Could not write to $launchlist"
+
+cseg=0
+set -- $(head -n 1 "$srcdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
+srcitemn=$#
+enns=$(seq $srcitemn 7 | tr '[0-9]' 'n')
+read eins zwei drei vier funf sechs sieben acht <<<$( echo $* $enns )
+set -- $(head -n 1 "$tgtdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
+tgtitemn=$#
+enns=$(seq $tgtitems 7 | tr '[0-9]' 'n')
+read ett tva tre fyra fem sex sju atta <<<$( echo $* $enns)
+
+atlasn=$(tail -n +2  "$srcdesc" | wc -l)
+tail -n +2 "$srcdesc" | grep -v ^# | while IFS='\n' read srcline ; do
+    unset srcarr ; declare -A srcarr
+    srcargc=0
+    read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
+    [[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) &&   srcid="${srcarr["id"]}"                              && unset srcarr["id"]
+    [[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) &&  srcmri="-srcmri $srcbase/${srcarr["mri"]}"            && unset srcarr["mri"]
+    [[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && srcmask="-srcmask $srcbase/${srcarr["brainmask"]}"     && unset srcarr["brainmask"]
+    [[ -n ${srcarr["onepad"]} ]]            && (( srcargc += 1 )) &&   srcop="-srcop $srcbase/${srcarr["onepad"]}"          && unset srcarr["onepad"]
+    [[ -n ${srcarr["tc3raw"]} ]]            && (( srcargc += 1 )) &&  srctc3="-srctc3 $srcbase/${srcarr["tc3raw"]}"         && unset srcarr["tc3raw"]
+    [[ -n ${srcarr["pretransformation"]} ]] && (( srcargc += 1 )) &&     spn="-spn $srcbase/${srcarr["pretransformation"]}" && unset srcarr["pretransformation"]
+    srclabels=""
+    for i in ${!srcarr[@]} ; do
+	[[ $i == "n" ]] && continue
+	(( srcargc += 1 ))
+	srclabels=$srclabels" -srclabels "$i:$srcbase/${srcarr["$i"]}" "
+    done
+    [[ $srcargc -gt $srcitemn ]] && fatal "CSV items do not match header in $srcdesc"
+
+    tail -n +2  "$tgtdesc" | grep -v ^# | while IFS='\n' read tgtline ; do
+	tgtargc=0
+	unset tgtarr ; declare -A tgtarr
+	read tgtarr["$ett"] tgtarr["$tva"] tgtarr["$tre"] tgtarr["$fyra"] tgtarr["$fem"] tgtarr["$sex"] tgtarr["$sju"] tgtarr["$atta"] <<<$(echo $tgtline | tr ',' ' ')
+	[[ $loocv ]] && [[ $srcid == ${tgtarr["id"]} ]] && (( atlasn -= 1 )) && continue
+	[[ -n ${tgtarr["id"]} ]]                && (( tgtargc += 1 )) &&     tgtid="${tgtarr["id"]}"                              && unset tgtarr["id"]
+	[[ -n ${tgtarr["mri"]} ]]               && (( tgtargc += 1 )) &&    tgtmri="-tgtmri $tgtbase/${tgtarr["mri"]}"            && unset tgtarr["mri"]
+	[[ -n ${tgtarr["brainmask"]} ]]         && (( tgtargc += 1 )) &&   tgtmask="-tgtmask $tgtbase/${tgtarr["brainmask"]}"     && unset tgtarr["brainmask"]
+	[[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) &&     tgtop="-tgtop $tgtbase/${tgtarr["onepad"]}"          && unset tgtarr["onepad"]
+	[[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) &&    tgttc3="-tgttc3 $tgtbase/${tgtarr["tc3raw"]}"         && unset tgtarr["tc3raw"]
+	[[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) &&       tpn="-tpn $tgtbase/${tgtarr["pretransformation"]}" && unset tgtarr["pretransformation"]
+
+	tgtlabels=""
+	for i in ${!tgtarr[@]} ; do
+	    [[ $i == "n" ]] && continue
+	    (( tgtargc += 1 ))
+	    tgtlabels=$tgtlabels" -tgtlabels "$i:$tgtbase/${tgtarr["$i"]}" "
+	done
+	[[ $tgtargc -gt $tgtitemn ]] && fatal "CSV items do not match header in $tgtdesc"
+
+	if [[ ! $fastmode ]] ; then
+	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
+		$(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels" ) >/dev/null
+	fi
+	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
+	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels") >>$launchlist
+    done 
+done 
+

@@ -1,0 +1,339 @@
+#!/bin/bash
+
+ppath=$(realpath "$BASH_SOURCE")
+pdir=$(dirname "$ppath")
+pname=$(basename "$ppath")
+
+set -e 
+
+. "$pdir"/common
+
+startsec=$(date +%s)
+
+### Check for MIRTK and NiftySeg
+
+which transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
+which seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
+
+usage() {
+    cat <<EOF
+MAPER - Calculate robust registration between a source-target pair, transform label images to target, 
+        fuse result from multiple transformations to same target if available. 
+
+Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -output-dir /path/to/write/output
+
+<source_spec> consists of one of
+       [-srcop src-onepad.nii.gz]
+or
+       [-srcmri src-mri.nii.gz]
+plus
+       [-srcmask src-brainmask.nii.gz]
+          If -srcmri is specified without -srcmask, a skullstripped image is assumed..
+          If -srcop is specified, its own masking takes precedence.
+       [-srctc3raw src-three-tissue-class-probmap.nii.gz]
+          If not provided, this will be calculated.
+       [-spn pretransformation.dof.gz] 
+          This will be combined with the inverse of -tpn to achieve prealignment.
+       [-srclabels name1:labelset1.nii.gz]
+       [-srclabels name2:labelset2.nii.gz] 
+          Up to four allowed -- will be transformed according to registration result.
+
+<target_spec>
+       [-tgtop tgt-onepad.nii.gz]
+       [-tgtmri tgt-mri.nii.gz]
+       [-tgtmask tgt-brainmask.nii.gz]
+       [-tgttc3raw tgt-three-tissue-class-probmap.nii.gz]
+treated analogously to corresponding <source_spec> items.
+       [-tpn pretransformation.dof.gz] \
+          Obligatory if -spn specified. Either is ignored unless both are specified.
+       [-tgtlabels name1:labelset1.nii.gz]
+       [-tgtlabels name2:labelset2.nii.gz] 
+          TODO These will be used as reference for overlap assessment of transformed labels
+
+       [-atlasn NN]
+          If NN source transformations are found for TargetID in -output-dir, 
+          label fusion will be performed.
+       [-tc3out]
+          Raw three-class tissue probability map for target image will be saved 
+          (compressed file size is ca. 5 × input image)
+       [-quicktest] 
+          For accelerated run (very coarse result)
+       [-dry-run] 
+          Test if options correctly specified. Perform label fusion if -atlasn also 
+          specified.
+       [-debug]
+          To save temporary working directory to -output-dir
+"
+EOF
+}
+
+### Parameters
+
+quicktest=
+srcop=null
+srcmri=null
+isrcsegs=
+srcmask=null
+nsrcsegs=0
+srctc3raw=null
+spn=neutral.dof.gz
+tgtop=null
+tgtmri=null
+tgtmask=null
+itgtsegs=
+ntgtsegs=0
+tgttc3raw=null
+tpn=neutral.dof.gz
+outdir=$PWD/maper-$$
+atlasn=
+tc3out=
+debug=
+while [ $# -gt 0 ]
+do
+    case "$1" in
+	-srcid)          srcid="$2" ; shift ;;
+	-srcop)          srcop=$(realpath "$2") ; shift ;;
+	-srcmri)        srcmri=$(realpath "$2") ; shift ;;
+	-srctc3)     srctc3raw=$(realpath "$2") ; shift ;;
+	-srcmask)      srcmask=$(realpath "$2") ; shift ;;
+	-srclabels)   isrcsegs="$isrcsegs "$2 ; (( nsrcsegs += 1 )) ; shift ;;
+	-spn)              spn=$(realpath "$2") ; shift ;;
+	-tgtid)          tgtid="$2" ; shift ;;
+	-tgtop)          tgtop=$(realpath "$2") ; shift ;;
+	-tgtmri)        tgtmri=$(realpath "$2") ; shift ;;
+	-tgttc3)     tgttc3raw=$(realpath "$2") ; shift ;;
+	-tgtmask)      tgtmask=$(realpath "$2") ; shift ;;
+	-tgtlabels)   itgtsegs="$itgtsegs "$2 ; (( ntgtsegs += 1 )) ; shift ;;
+	-tpn)              tpn=$(realpath "$2") ; shift ;;
+	-output-dir)    outdir=$(realpath "$2") ; shift ;;
+	-atlasn)        atlasn="$2" ; shift ;;
+	-tc3out)        tc3out=1 ;;
+	-dry-run)       dryrun=1 ;;
+	-quicktest)  quicktest=1 ;;
+	-debug)          debug=1 ;;
+	-*)
+	    fatal $(usage) ;;
+*)  break ;; # terminate while loop
+    esac
+    shift
+done
+
+declare -A sourceseg
+for i in $isrcsegs ; do
+    set -- $(echo $i | tr ':' ' ' )
+    segname=$1 ; shift
+    ii=$(realpath $1) 
+    [[ -e $ii ]] || fatal "Source seg $i does not exist"
+    sourceseg["$segname"]=$ii
+done
+
+declare -A targetseg
+for i in $itgtsegs ; do
+    set -- $(echo $i | tr ':' ' ' )
+    segname=$1 ; shift
+    ii=$(realpath $1)
+    [[ -e $ii ]] || fatal "Target seg $i does not exist"
+    targetseg["$segname"]=$ii
+done
+
+baseoutdir=$outdir
+outdir="$outdir/$srcid-$tgtid"
+
+### Functions
+
+tc3() { ### Tissue classification
+    local input=$(realpath "$1") ; shift
+    local outdir=$(realpath "$1") ; shift
+
+    local bn=$(basename "$input")
+    local tdl=$(mktemp -d tc3."$bn".XXXXX)
+    cd $tdl
+
+    if [[ -n $dryrun ]] ; then
+	( cd $outdir ; touch csf.nii.gz gm.nii.gz wm.nii.gz crisp-csf.nii.gz crisp-gm.nii.gz crisp-wm.nii.gz )
+	cd ..
+	return
+    fi
+
+    seg_maths "$input"/mri.nii.gz brain
+    seg_maths "$input"/mask.nii.gz mask
+
+    if [[ -s "$input"/tc3raw.nii.gz ]] ; then
+	cp "$input"/tc3raw.nii.gz tc3raw.nii.gz
+    else
+	seg_EM -in brain -out tc3raw -bc_out bcout -nopriors 3 -mask mask
+    fi
+
+    # Generate crisp labels
+    seg_maths tc3raw -tpmax -add mask crisp
+    seg_maths crisp -thr 0.5 -uthr 1.5 "$outdir"/crisp-csf.nii.gz
+    seg_maths crisp -thr 1.5 -uthr 2.5 "$outdir"/crisp-gm.nii.gz
+    seg_maths crisp -thr 2.5 -uthr 3.5 "$outdir"/crisp-wm.nii.gz
+
+    # Get individual tc probability maps, subsample
+    seg_maths tc3raw -tp 0 -mul 254 csf
+    seg_maths mask -dil 6 -add csf "$outdir"/csf.nii.gz
+    seg_maths tc3raw.nii.gz -tp 1 -mul 255 "$outdir"/gm.nii.gz
+    seg_maths tc3raw.nii.gz -tp 2 -mul 255 "$outdir"/wm.nii.gz
+
+    cd ..
+}
+
+regprop() {  ### Registration and label propagation
+    local src="$1" ; shift
+    local tgt="$1" ; shift
+    local outdir=$1 ; shift
+
+    local dof="$outdir"/src-tgt.dof.gz
+    local srcseg="$src"/srcseg.nii.gz
+    local autosegdir="$outdir"/seg/
+
+    local tdl=$(mktemp -d regprop.XXXXX)
+    cd "$tdl"
+
+    ds=2.5 ; [[ $quicktest ]] && ds=10
+
+    if [[ -z $dryrun ]] ; then
+	if [[ ! -e "$dof" ]] ; then
+	    cat >coarse-reg.par <<EOF 
+Energy function = SIM[Similarity](I1, I4 o T) + SIM[Similarity](I2, I5 o T) + SIM[Similarity](I3, I6 o T) + BE[Bending energy](T)
+Similarity measure = SSD
+Bending energy weight = 1e-3
+Strict step length range         = No
+Maximum streak of rejected steps = 2
+EOF
+
+	    cat >fine-reg.par <<EOF 
+Strict step length range         = No
+Maximum streak of rejected steps = 2
+EOF
+
+	    compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
+	    register \
+		"$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
+		"$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
+		-dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 3 -parin coarse-reg.par -ds $ds
+	    
+	    register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+		-dofin coarse.dof.gz -dofout "$dof" -bg 0 -model FFD -levels 2 1 -parin fine-reg.par -ds $ds
+	fi
+    fi
+
+    # c=0
+    for i in ${!sourceseg[@]} ; do
+	srcseg=${sourceseg["$i"]}
+	if [[ -s $srcseg ]] ; then 
+	    autoseg="$autosegdir"/$i.nii.gz 
+	    [[ -e "$autoseg" ]] && continue
+	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
+	    transform-image $srcseg "$autoseg" -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN"
+	fi
+    done
+
+    cd ..
+}
+
+onepadgen() { ### Generate onepad images
+    local mri=$(realpath "$1") ; shift
+    local mask=$(realpath "$1") ; shift
+    local onepad=$(realpath "$1") ; shift
+
+    local tdl=$(mktemp -d onepadgen.XXXX)
+    cd $tdl
+
+    if [[ -s "$onepad" ]] ; then
+	[[ -s "$mri" ]] || calculate-element-wise "$onepad" -map 1 0 -o "$mri"
+    fi
+
+    if [[ ! -s "$mask" ]] ; then
+	seg_maths "$mri" -bin "$mask"
+    fi
+    cp "$mask" mask.nii.gz
+
+    if [[ -z $dryrun ]] ; then
+	[[ -s "$mri" ]] || return 1
+
+	dilate-image mask.nii.gz mask-dil.nii.gz -iterations 6
+	calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii.gz
+	calculate-element-wise mask-dil.nii.gz - mask.nii.gz + masked.nii.gz = "$onepad"
+    fi
+
+    cd ..
+}
+
+d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; } 
+
+### Preparation: staging files and generating onepad images
+
+mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
+
+td=$(tempdir)
+trap finish EXIT
+cd "$td"
+touch null
+cp "$pdir"/neutral.dof.gz .
+mkdir -p tgt src regout/seg
+outdof="$outdir"/src-tgt.dof.gz
+[[ -e $outdof ]] && cp $outdof regout/
+set -- "$outdir"/seg/*
+[[ -e $1 ]] && cp $@ regout/seg/
+
+cp "$srcop" src/onepad.nii.gz
+cp "$srcmri" src/mri.nii.gz
+cp "$srcmask" src/mask.nii.gz
+cp "$srctc3raw" src/tc3raw.nii.gz
+cp "$spn" src/pre.dof.gz
+onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
+    || usage "Source image not set. Either [-srcop file] or [-srcmri file] must be provided on commandline."
+
+cp "$tgtop" tgt/onepad.nii.gz
+cp "$tgtmri" tgt/mri.nii.gz
+cp "$tgtmask" tgt/mask.nii.gz
+cp "$tgttc3raw" tgt/tc3raw.nii.gz
+cp "$tpn" tgt/pre.dof.gz
+onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
+    || usage "Target image not set. Either [-tgtop file] or [-tgtmri file] must be provided on commandline."
+
+### Main routine
+
+tc3 src src
+tc3 tgt tgt
+
+regprop "$td"/src "$td"/tgt "$td"/regout
+
+
+### Stage out results
+
+cp -r regout/* "$outdir"/
+cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
+[[ $debug ]] && cp -a $td $outdir
+[[ $tc3out ]] && cp tgt/tc3raw.nii.gz $outdir/tgt-tc3raw.nii.gz
+
+### Fusion if numbers suffice
+
+if [[ $atlasn -ge 3 ]] ; then
+    for i in ${!sourceseg[@]} ; do
+	set -- "$baseoutdir"/*-$tgtid/seg/"$i".nii.gz
+	nready=$#
+	if [[ $nready -ge $atlasn ]] ; then
+	    first=$1 ; shift
+	    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
+	    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
+	    seg_LabFusion -in merged-$i.nii.gz -MV -out $thisseg.nii.gz
+	    ref=${targetseg["$i"]} 
+	    if [[ -s $ref ]] ; then
+		seg_stats $ref -d $thisseg.nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv 
+		( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do 
+			echo $region, $(d2j $dsc) ; done ) >$thisseg-indivjc.csv
+		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >$thisseg-meanjc.csv
+	    fi
+	fi
+    done
+fi
+
+
+
+endsec=$(date +%s)
+msg "runtime: $[$endsec-$startsec] seconds"
+
+# TODO: Compare individual output with reference and/or fused seg; compare fused seg with reference
