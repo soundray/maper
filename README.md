@@ -14,14 +14,18 @@ respect to manual reference segmentations.
 Robustness is achieved by calculating an initial, coarse
 transformation between image-derived tissue probability maps, which is
 used as a starting point for registering the intensity images.
-Process yields are ca. 99.5% (measured on ADNI baseline images).
-Segmentation results are plausible even in severe brain atrophy.
+Process yields are ca. 99.5% or higher (for example when segmenting
+[ADNI](http://adni.loni.usc.edu/) baseline T1-weighted images using
+the [Hammers_{mith} Atlas
+Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
+Segmentation results tend to be plausible even in severe brain atrophy
+and other abnormal brain configurations.
 
 
 ### Publication
 
-If you use this software in your own work, please acknowledge MAPER by
-citing
+The rationale and principle are described in detail in the following
+paper.
 
 >    Heckemann, R. A., Keihaninejad, S., Aljabar, P., Rueckert, D.,
 >    Hajnal, J. V., Hammers, A., May 2010. Improving intersubject image
@@ -30,6 +34,8 @@ citing
 >    segmentation. NeuroImage 51 (1),
 >    221-227. http://dx.doi.org/10.1016/j.neuroimage.2010.01.072
 
+If you use this software in your own work, please acknowledge MAPER by
+citing the above.
 
 MAPER is based on earlier work on multi-atlas based segmentation:
 
@@ -39,6 +45,10 @@ MAPER is based on earlier work on multi-atlas based segmentation:
 >    fusion. NeuroImage 33 (1),
 >    115-126. http://dx.doi.org/10.1016/j.neuroimage.2006.05.061
     
+Since the 2010 paper, MAPER has been rewritten three times and ported
+to MIRTK for the registration. The principal idea remains the same,
+however.
+
 
 ### Platform
 
