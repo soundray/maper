@@ -62,7 +62,7 @@ multiple atlas images to a target image is embarrassingly parallel.
 * [MIRTK](https://github.com/BioMedIA/MIRTK)
 * [NiftySeg](https://github.com/KCL-BMEIS/NiftySeg)
 
-For non-niche dependencies, cf. `default.nix`.
+For non-niche dependencies, cf. [`default.nix`](https://github.com/soundray/maper/blob/master/default.nix).
 
 ### Instructions
 
