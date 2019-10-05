@@ -5,10 +5,10 @@ This software segments structural magnetic resonance images
 automatically into anatomical regions using a database of segmented
 images (atlases) as a knowledge base.
 
-MAPER exemplifies ensemble machine learning to approximate answers to
-an ill-posed problem: there is no objective arbiter for drawing a
+MAPER exemplifies ensemble machine learning to approximate solutions
+to an ill-posed problem: there is no objective arbiter for drawing a
 boundary between anatomical regions in the brain on an _in vivo_
-image.  However, MAPER achieves high consistency and accuracy with
+image.  MAPER achieves high consistency and accuracy with
 respect to manual reference segmentations.
 
 Robustness is achieved by calculating an initial, coarse
@@ -46,8 +46,8 @@ MAPER is based on earlier work on multi-atlas based segmentation:
 >    115-126. http://dx.doi.org/10.1016/j.neuroimage.2006.05.061
     
 Since the 2010 paper, MAPER has been rewritten three times and ported
-to MIRTK for the registration. The principal idea remains the same,
-however.
+to MIRTK for the registration steps. The principal idea remains the 
+same, however.
 
 
 ### Platform
@@ -70,7 +70,9 @@ Clone or download & unpack, then test with
 ```
 cd maper && export PATH=$PWD:$PATH
 mkdir ~/testrun && cd ~/testrun
-run-maper-example.sh
+run-maper-example-generate.sh
+# Modify run-maper-example.sh if and as desired
+bash run-maper-example.sh
 ```
 
 Feedback welcome at metrimorphics@soundray.de
