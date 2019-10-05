@@ -16,7 +16,7 @@ transformation between image-derived tissue probability maps, which is
 used as a starting point for registering the intensity images.
 Process yields are ca. 99.5% or higher (for example when segmenting
 [ADNI](http://adni.loni.usc.edu/) baseline T1-weighted images using
-the [Hammers_{mith} Atlas
+the [Hammers<sub>mith</sub> Atlas
 Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
 Segmentation results tend to be plausible even in severe brain atrophy
 and other abnormal brain configurations.
