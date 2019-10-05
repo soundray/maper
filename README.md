@@ -82,7 +82,7 @@ intensity, and the image file is stored in `~/testrun/mybrain-T1w.nii.gz`:
 printf "id, mri\nMyBrain, mybrain-T1w.nii.gz\n" >target.csv
 launchlist-gen -src-description mini-atlas-n7r95/source-description.csv \
                -tgt-description target.csv \
-               -output-dir MAPER-MyMRI  
+               -output-dir MAPER-MyBrain  
 bash launchlist.sh
 ```
 To parallelize the above onto seven threads, replace the last line with
