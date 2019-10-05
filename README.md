@@ -59,9 +59,10 @@ multiple atlas images to a target image is embarrassingly parallel.
 
 ### Dependencies
 
-* MIRTK (https://github.com/BioMedIA/MIRTK)
-* NiftySeg (https://github.com/KCL-BMEIS/NiftySeg)
+* [MIRTK](https://github.com/BioMedIA/MIRTK)
+* [NiftySeg](https://github.com/KCL-BMEIS/NiftySeg)
 
+For non-niche dependencies, cf. `default.nix`.
 
 ### Instructions
 
