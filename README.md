@@ -67,13 +67,27 @@ For non-niche dependencies, cf. `default.nix`.
 ### Instructions
 
 Clone or download & unpack, then test with
-
 ```
 cd maper && export PATH=$PWD:$PATH
 mkdir ~/testrun && cd ~/testrun
 run-maper-example-generate.sh
 # Modify run-maper-example.sh if and as desired
 bash run-maper-example.sh
+```
+Simple invocation for a single image using the mini-atlas from the 
+above example. The image is assumed to be a T1-weighted 3D 
+skullstripped MR, ie. every non-brain voxel is set to zero 
+intensity, and the image file is stored in `~/testrun/mybrain-T1w.nii.gz`:
+```
+printf "id, mri\nMyBrain, mybrain-T1w.nii.gz\n" >target.csv
+launchlist-gen -src-description mini-atlas-n7r95/source-description.csv \
+               -tgt-description target.csv \
+               -output-dir MAPER-MyMRI  
+bash launchlist.sh
+```
+To parallelize the above onto seven threads, replace the last line with
+```
+cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ```
 
 Feedback welcome at metrimorphics@soundray.de
