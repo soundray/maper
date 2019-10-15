@@ -46,7 +46,7 @@ usage() {
            [-tgtmask tgt-brainmask.nii.gz]
            [-tgttc3raw tgt-three-tissue-class-probmap.nii.gz]
     treated analogously to corresponding <source_spec> items.
-           [-tpn pretransformation.dof.gz] \
+           [-tpn pretransformation.dof.gz] 
               Obligatory if -spn specified. Either is ignored unless both are specified.
            [-tgtlabels name1:labelset1.nii.gz]
            [-tgtlabels name2:labelset2.nii.gz] 
