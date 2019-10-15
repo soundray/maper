@@ -83,7 +83,7 @@ enns=$(seq $tgtitems 7 | tr '[0-9]' 'n')
 read ett tva tre fyra fem sex sju atta <<<$( echo $* $enns)
 
 atlasn=$(tail -n +2  "$srcdesc" | wc -l)
-tail -n +2 "$srcdesc" | grep -v ^# | while IFS='\n' read srcline ; do
+tail -n +2 "$srcdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read srcline ; do
     unset srcarr ; declare -A srcarr
     srcargc=0
     read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
@@ -101,7 +101,7 @@ tail -n +2 "$srcdesc" | grep -v ^# | while IFS='\n' read srcline ; do
     done
     [[ $srcargc -gt $srcitemn ]] && fatal "CSV items do not match header in $srcdesc"
 
-    tail -n +2  "$tgtdesc" | grep -v ^# | while IFS='\n' read tgtline ; do
+    tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read tgtline ; do
 	tgtargc=0
 	unset tgtarr ; declare -A tgtarr
 	read tgtarr["$ett"] tgtarr["$tva"] tgtarr["$tre"] tgtarr["$fyra"] tgtarr["$fem"] tgtarr["$sex"] tgtarr["$sju"] tgtarr["$atta"] <<<$(echo $tgtline | tr ',' ' ')
