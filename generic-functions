@@ -4,9 +4,7 @@ msg () {
     done
 }
 
-fatal () { msg "$@" ; exit 1 ; }
-
-usage() { echo $usage ; fatal "$@" ; }
+fatal () { usage ; msg "$@" ; exit 1 ; }
 
 tempdir () {
     : ${TMPDIR:="/tmp"}

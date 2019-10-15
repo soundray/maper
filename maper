@@ -30,7 +30,7 @@ usage() {
            [-srcmri src-mri.nii.gz]
     plus
            [-srcmask src-brainmask.nii.gz]
-              If -srcmri is specified without -srcmask, a skullstripped image is assumed..
+              If -srcmri is specified without -srcmask, a skullstripped image is assumed.
               If -srcop is specified, its own masking takes precedence.
            [-srctc3raw src-three-tissue-class-probmap.nii.gz]
               If not provided, this will be calculated.
@@ -65,7 +65,7 @@ usage() {
               specified.
            [-debug]
               To save temporary working directory to -output-dir
-"
+
 EOF
 }
 
@@ -90,6 +90,7 @@ outdir=$PWD/maper-$$
 atlasn=
 tc3out=
 debug=
+[[ $# -lt 10 ]] && fatal "Parameter error"
 while [ $# -gt 0 ]
 do
     case "$1" in
@@ -114,7 +115,7 @@ do
 	-quicktest)  quicktest=1 ;;
 	-debug)          debug=1 ;;
 	-*)
-	    fatal $(usage) ;;
+	    fatal "Parameter error" ;;
 *)  break ;; # terminate while loop
     esac
     shift

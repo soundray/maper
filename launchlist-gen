@@ -9,12 +9,23 @@ set -e
 . "$pdir"/generic-functions
 . "$pdir"/common
 
+usage() {
+cat <<EOF
+
+    $pname - generates a shell script containing maper calls for each possible pairing 
+                 from a source description and a target description
+
+    Usage: $pname -src-base atlasdir/ -src-description atlases.csv -tgt-base targetdir/ \\
+                          -tgt-description targets.csv -output-dir distinctname \\
+                          -launchlist outputfile.sh [-threads 1] [-loocv] [-fastmode]
+
+EOF
+}
 
 ### Check for MIRTK and NiftySeg
 type transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
 type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
-usage="Usage: $pname -src-base atlasdir/ -src-description atlases.csv -tgt-base targetdir/ -tgt-description targets.csv -output-dir distinctname -launchlist outputfile.sh [-threads 1] [-loocv] [-fastmode]"
 srcbase=
 srcdesc=
 tgtbase=
@@ -25,6 +36,7 @@ loocv=
 threads=1
 fastmode=0
 quicktest=
+[[ $# -lt 6 ]] && fatal "Parameter error"
 while [ $# -gt 0 ]
 do
     case "$1" in
@@ -40,7 +52,7 @@ do
 	-fastmode)              fastmode=1 ;;
 	-quicktest)            quicktest=1 ;;
 	-*)
-	    usage "Parameter error"
+	    fatal "Parameter error"
     exit 1 ;;
 *)  break ;; # terminate while loop
     esac
@@ -49,14 +61,14 @@ done
 
 [[ -e $srcbase ]] || srcbase=$(dirname "$srcdesc")
 [[ -e $tgtbase ]] || tgtbase=$(dirname "$tgtdesc")
-[[ -s $srcdesc ]] || usage "Source description $srcdesc does not exist"
-[[ -s $tgtdesc ]] || usage "Target description $tgtdesc does not exist"
+[[ -s $srcdesc ]] || fatal "Source description $srcdesc does not exist"
+[[ -s $tgtdesc ]] || fatal "Target description $tgtdesc does not exist"
 
 qt= ; [[ $quicktest ]] && qt="-quicktest"
 
 procs=$(nproc --all)
-[[ $threads =~ [0-9]?[0-9] ]] || usage "Threads must be a number smaller than $procs ($threads)"
-[[ $threads -gt $procs ]] && usage "Threads must be a number smaller than $procs ($threads)"
+[[ $threads =~ [0-9]?[0-9] ]] || fatal "Threads must be a number smaller than $procs ($threads)"
+[[ $threads -gt $procs ]] && fatal "Threads must be a number smaller than $procs ($threads)"
 
 cat /dev/null >$launchlist || fatal "Could not write to $launchlist"
 
