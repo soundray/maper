@@ -5,10 +5,10 @@ This software segments structural magnetic resonance images
 automatically into anatomical regions using a database of segmented
 images (atlases) as a knowledge base.
 
-MAPER exemplifies ensemble machine learning to approximate answers to
-an ill-posed problem: there is no objective arbiter for drawing a
+MAPER exemplifies ensemble machine learning to approximate solutions
+to an ill-posed problem: there is no objective arbiter for drawing a
 boundary between anatomical regions in the brain on an _in vivo_
-image.  However, MAPER achieves high consistency and accuracy with
+image.  MAPER achieves high consistency and accuracy with
 respect to manual reference segmentations.
 
 Robustness is achieved by calculating an initial, coarse
@@ -16,7 +16,7 @@ transformation between image-derived tissue probability maps, which is
 used as a starting point for registering the intensity images.
 Process yields are ca. 99.5% or higher (for example when segmenting
 [ADNI](http://adni.loni.usc.edu/) baseline T1-weighted images using
-the [Hammers_{mith} Atlas
+the [Hammers<sub>mith</sub> Atlas
 Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
 Segmentation results tend to be plausible even in severe brain atrophy
 and other abnormal brain configurations.
@@ -46,8 +46,8 @@ MAPER is based on earlier work on multi-atlas based segmentation:
 >    115-126. http://dx.doi.org/10.1016/j.neuroimage.2006.05.061
     
 Since the 2010 paper, MAPER has been rewritten three times and ported
-to MIRTK for the registration. The principal idea remains the same,
-however.
+to MIRTK for the registration steps. The principal idea remains the 
+same, however.
 
 
 ### Platform
@@ -59,18 +59,35 @@ multiple atlas images to a target image is embarrassingly parallel.
 
 ### Dependencies
 
-* MIRTK (https://github.com/BioMedIA/MIRTK)
-* NiftySeg (https://github.com/KCL-BMEIS/NiftySeg)
+* [MIRTK](https://github.com/BioMedIA/MIRTK)
+* [NiftySeg](https://github.com/KCL-BMEIS/NiftySeg)
 
+For non-niche dependencies, cf. [`default.nix`](https://github.com/soundray/maper/blob/master/default.nix).
 
 ### Instructions
 
 Clone or download & unpack, then test with
-
 ```
 cd maper && export PATH=$PWD:$PATH
 mkdir ~/testrun && cd ~/testrun
-run-maper-example.sh
+run-maper-example-generate.sh
+# Modify run-maper-example.sh if and as desired
+bash run-maper-example.sh
+```
+Simple invocation for a single image using the mini-atlas from the 
+above example. The image is assumed to be a T1-weighted 3D 
+skullstripped MR, ie. every non-brain voxel is set to zero 
+intensity, and the image file is stored in `~/testrun/mybrain-T1w.nii.gz`:
+```
+printf "id, mri\nMyBrain, mybrain-T1w.nii.gz\n" >target.csv
+launchlist-gen -src-description mini-atlas-n7r95/source-description.csv \
+               -tgt-description target.csv \
+               -output-dir MAPER-MyBrain  
+bash launchlist.sh
+```
+To parallelize the above onto seven threads, replace the last line with
+```
+cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ```
 
 Feedback welcome at metrimorphics@soundray.de
