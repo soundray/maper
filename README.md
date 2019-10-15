@@ -90,6 +90,16 @@ To parallelize the above onto seven threads, replace the last line with
 cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ```
 
+### Use with the [Hammers<sub>mith</sub> Atlas Database](https://brain-development.org/brain-atlases/adult-brain-atlases/))
+
+Download and unpack the atlas database in `~/atlas`, then run
+```
+mkdir ~/atlas/ancillaries
+hammers_mith-ancillaries.sh ~/atlas ~/atlas/ancillaries
+```
+This will download and unpack the ancillary data needed for MAPER
+in the given location, including the source description csv file.
+
 Feedback welcome at metrimorphics@soundray.de
 
 
