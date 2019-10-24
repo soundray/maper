@@ -7,14 +7,13 @@ pname=$(basename "$ppath")
 set -e 
 
 . "$pdir"/generic-functions
-. "$pdir"/common
 
 startsec=$(date +%s)
 
 ### Check for MIRTK and NiftySeg
 
-type transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path, e.g. by setting in $pdir/common"
-type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path, e.g. by setting in $pdir/common"
+type mirtk >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure mirtk binary is on executable path."
+type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path."
 
 usage() {
     cat <<EOF
@@ -211,14 +210,14 @@ Strict step length range         = No
 Maximum streak of rejected steps = 2
 EOF
 
-	    compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
-	    register \
+	    mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
+	    mirtk register \
 		"$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
 		"$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
 		-dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 3 \
 		-parin coarse-reg.par -ds $ds | while read i ; do echo "[$srcid-$tgtid] $i" ; done
 	    
-	    register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+	    mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
 		     -dofin coarse.dof.gz -dofout "$dof" -bg 0 -model FFD -levels 2 1 -parin fine-reg.par -ds $ds \
 		| while read i ; do echo "[$srcid-$tgtid] $i" ; done
 	fi
@@ -231,7 +230,7 @@ EOF
 	    autoseg="$autosegdir"/$i.nii.gz 
 	    [[ -e "$autoseg" ]] && continue
 	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
-	    transform-image $srcseg "$autoseg" -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN"
+	    mirtk transform-image $srcseg "$autoseg" -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN"
 	fi
     done
 
@@ -247,7 +246,7 @@ onepadgen() { ### Generate onepad images
     cd $tdl
 
     if [[ -s "$onepad" ]] ; then
-	[[ -s "$mri" ]] || calculate-element-wise "$onepad" -map 1 0 -o "$mri"
+	[[ -s "$mri" ]] || mirtk calculate-element-wise "$onepad" -map 1 0 -o "$mri"
     fi
 
     if [[ ! -s "$mask" ]] ; then
@@ -258,9 +257,9 @@ onepadgen() { ### Generate onepad images
     if [[ -z $dryrun ]] ; then
 	[[ -s "$mri" ]] || return 1
 
-	dilate-image mask.nii.gz mask-dil.nii.gz -iterations 6
-	calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii.gz
-	calculate-element-wise mask-dil.nii.gz - mask.nii.gz + masked.nii.gz = "$onepad"
+	mirtk dilate-image mask.nii.gz mask-dil.nii.gz -iterations 6
+	mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii.gz
+	mirtk calculate-element-wise mask-dil.nii.gz - mask.nii.gz + masked.nii.gz = "$onepad"
     fi
 
     cd ..
@@ -339,9 +338,6 @@ if [[ $atlasn -ge 3 ]] ; then
     done
 fi
 
-
-
 endsec=$(date +%s)
 msg "runtime: $[$endsec-$startsec] seconds"
 
-# TODO: Compare individual output with reference and/or fused seg; compare fused seg with reference

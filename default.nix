@@ -28,9 +28,6 @@ in pkgs.runCommandNoCC "maper-1.2.3" {
 } ''
   mkdir -p $out/bin $out/lib/maper
   cp ${src}/{maper,launchlist-gen,generic-functions,run-maper-example.sh} $out/lib/maper
-  cat <<EOF >$out/lib/maper/common
-  export PATH=${lib.escapeShellArg binpath}
-  EOF
   for f in $out/lib/maper/* ; do patchShebangs $f ; done
   cp ${src}/neutral.dof.gz $out/lib/maper
   ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example.sh} $out/bin

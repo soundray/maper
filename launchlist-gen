@@ -7,7 +7,6 @@ pname=$(basename "$ppath")
 set -e 
 
 . "$pdir"/generic-functions
-. "$pdir"/common
 
 usage() {
 cat <<EOF
@@ -23,7 +22,7 @@ EOF
 }
 
 ### Check for MIRTK and NiftySeg
-type transform-image >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure transform-image is on executable path"
+type mirtk >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure mirtk binary is on executable path"
 type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
 srcbase=
