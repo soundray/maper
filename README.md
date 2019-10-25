@@ -74,6 +74,9 @@ run-maper-example-generate.sh
 # Modify run-maper-example.sh if and as desired
 bash run-maper-example.sh
 ```
+This downloads a mini-set of atlases with seven members and runs MAPER 
+with one of the atlas images as the target.
+
 Simple invocation for a single image using the mini-atlas from the 
 above example. The image is assumed to be a T1-weighted 3D 
 skullstripped MR, ie. every non-brain voxel is set to zero 
@@ -101,5 +104,3 @@ This will download and unpack the ancillary data needed for MAPER
 in the given location, including the source description csv file.
 
 Feedback welcome at metrimorphics@soundray.de
-
-
