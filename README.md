@@ -100,7 +100,8 @@ Download and unpack the atlas database in `~/atlas`, then run
 mkdir ~/atlas/ancillaries
 hammers_mith-ancillaries.sh ~/atlas ~/atlas/ancillaries
 ```
-This will download and unpack the ancillary data needed for MAPER
-in the given location, including the source description csv file.
+This will download and unpack the ancillary data needed for MAPER in the 
+given location, including the source description csv file. Point 
+`launchlist-gen` to this file via the `-src-description` option.
 
 Feedback welcome at metrimorphics@soundray.de
