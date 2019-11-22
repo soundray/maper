@@ -10,11 +10,6 @@ set -e
 
 startsec=$(date +%s)
 
-### Check for MIRTK and NiftySeg
-
-type mirtk >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure mirtk binary is on executable path."
-type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path."
-
 usage() {
     cat <<EOF
 
@@ -23,50 +18,82 @@ usage() {
     
     Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -output-dir /path/to/write/output
     
-    <source_spec> consists of one of
+    <source_spec> consists of either
+
            [-srcop src-onepad.nii.gz]
-    or
+
+        or
+
            [-srcmri src-mri.nii.gz]
-    plus
+
+           plus
+
            [-srcmask src-brainmask.nii.gz]
               If -srcmri is specified without -srcmask, a skullstripped image is assumed.
               If -srcop is specified, its own masking takes precedence.
-           [-srctc3raw src-three-tissue-class-probmap.nii.gz]
-              If not provided, this will be calculated.
-           [-spn pretransformation.dof.gz] 
-              This will be combined with the inverse of -tpn to achieve prealignment.
-           [-srclabels name1:labelset1.nii.gz]
-           [-srclabels name2:labelset2.nii.gz] 
-              Up to four allowed -- will be transformed according to registration result.
+
+        [-srctc3raw src-three-tissue-class-probmap.nii.gz]
+           If not provided, this will be calculated.
+
+        [-spn pretransformation.dof.gz] 
+           This will be combined with the inverse of -tpn to achieve prealignment.
+
+        [-srclabels name1:labelset1.nii.gz]
+
+        [-srclabels name2:labelset2.nii.gz] 
+           Up to four allowed -- will be transformed according to registration result.
     
     <target_spec>
-           [-tgtop tgt-onepad.nii.gz]
-           [-tgtmri tgt-mri.nii.gz]
-           [-tgtmask tgt-brainmask.nii.gz]
-           [-tgttc3raw tgt-three-tissue-class-probmap.nii.gz]
-    treated analogously to corresponding <source_spec> items.
-           [-tpn pretransformation.dof.gz] 
-              Obligatory if -spn specified. Either is ignored unless both are specified.
-           [-tgtlabels name1:labelset1.nii.gz]
-           [-tgtlabels name2:labelset2.nii.gz] 
-              TODO These will be used as reference for overlap assessment of transformed labels
+
+        [-tgtop tgt-onepad.nii.gz]
+
+        [-tgtmri tgt-mri.nii.gz]
+
+        [-tgtmask tgt-brainmask.nii.gz]
+
+        [-tgttc3raw tgt-three-tissue-class-probmap.nii.gz]
+
+        treated analogously to corresponding <source_spec> items.
+
+        [-tpn pretransformation.dof.gz] 
+           Obligatory if -spn specified. Either is ignored unless both are specified.
+
+        [-tgtlabels name1:labelset1.nii.gz]
+
+        [-tgtlabels name2:labelset2.nii.gz] 
+           TODO These will be used as reference for overlap assessment of transformed labels
     
-           [-atlasn NN]
+        [-atlasn NN]
               If NN source transformations are found for TargetID in -output-dir, 
               label fusion will be performed.
-           [-tc3out]
-              Raw three-class tissue probability map for target image will be saved 
-              (compressed file size is ca. 5 × input image)
-           [-quicktest] 
-              For accelerated run (very coarse result)
-           [-dry-run] 
-              Test if options correctly specified. Perform label fusion if -atlasn also 
-              specified.
-           [-debug]
-              To save temporary working directory to -output-dir
+
+        [-tc3out]
+           Raw three-class tissue probability map for target image will be saved 
+           (compressed file size is ca. 5 × input image)
+
+        [-tc3crisp]
+           Discrete three-class tissue map for target image will be saved 
+
+        [-tc3only]
+           Exit after tc3 generation
+
+        [-quicktest] 
+           For accelerated run (very coarse result)
+
+        [-dry-run] 
+           Test if options correctly specified. Perform label fusion if -atlasn also 
+           specified.
+
+        [-debug]
+           To save temporary working directory to -output-dir location
 
 EOF
 }
+
+### Check for MIRTK and NiftySeg
+
+type mirtk >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure mirtk binary is on executable path."
+type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path."
 
 ### Parameters
 
@@ -88,6 +115,8 @@ tpn=neutral.dof.gz
 outdir=$PWD/maper-$$
 atlasn=
 tc3out=
+tc3crisp=
+tc3only=0
 debug=
 [[ $# -lt 10 ]] && fatal "Parameter error"
 while [ $# -gt 0 ]
@@ -110,6 +139,8 @@ do
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
 	-tc3out)        tc3out=1 ;;
+	-tc3crisp)    tc3crisp=1 ;;
+	-tc3only)      tc3only=1 ;;
 	-dry-run)       dryrun=1 ;;
 	-quicktest)  quicktest=1 ;;
 	-debug)          debug=1 ;;
@@ -171,6 +202,7 @@ tc3() { ### Tissue classification
     seg_maths crisp -thr 0.5 -uthr 1.5 "$outdir"/crisp-csf.nii.gz
     seg_maths crisp -thr 1.5 -uthr 2.5 "$outdir"/crisp-gm.nii.gz
     seg_maths crisp -thr 2.5 -uthr 3.5 "$outdir"/crisp-wm.nii.gz
+    seg_maths crisp "$outdir"/crisp.nii.gz
 
     # Get individual tc probability maps, subsample
     seg_maths tc3raw -tp 0 -mul 254 csf
@@ -307,16 +339,19 @@ echo "=== Generating tissue-class probability maps ==="
 tc3 src src
 tc3 tgt tgt
 
-echo "=== Registration and propagation ==="
-regprop "$td"/src "$td"/tgt "$td"/regout
-
+if [[ $tc3only == 0 ]] ; then
+    echo "=== Registration and propagation ==="
+    regprop "$td"/src "$td"/tgt "$td"/regout
+fi
 
 ### Stage out results
 
 cp -r regout/* "$outdir"/
 cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
-[[ $debug ]] && cp -a $td $outdir
-[[ $tc3out ]] && cp tgt/tc3raw.nii.gz $outdir/tgt-tc3raw.nii.gz
+[[ $debug ]] && cp -a $td "$outdir"
+[[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
+[[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
+[[ $tc3only ]] && exit 0
 
 ### Fusion if numbers suffice
 
