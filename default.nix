@@ -27,8 +27,8 @@ in pkgs.runCommandNoCC "maper-1.2.3" {
   };
 } ''
   mkdir -p $out/bin $out/lib/maper
-  cp ${src}/{maper,launchlist-gen,generic-functions,run-maper-example.sh} $out/lib/maper
+  cp ${src}/{maper,launchlist-gen,generic-functions,run-maper-example-generate.sh} $out/lib/maper
   for f in $out/lib/maper/* ; do patchShebangs $f ; done
   cp ${src}/neutral.dof.gz $out/lib/maper
-  ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example.sh} $out/bin
+  ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example-generate.sh} $out/bin
 ''
