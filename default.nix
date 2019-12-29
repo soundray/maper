@@ -9,7 +9,7 @@ let
   src = lib.cleanSource ./.;
   binpath = pkgs.lib.concatStringsSep ":" [
     "$out/bin" # sample needs maper on PATH
-    "${pkgs.mirtk}/lib/tools" # maper needs non-namespaced mirtk tools
+    "${pkgs.mirtk}/bin"
     "${pkgs.niftyseg}/bin"
     "${pkgs.coreutils}/bin" # For date
     "${pkgs.curl}/bin" # For example script to download sample data
@@ -27,7 +27,10 @@ in pkgs.runCommandNoCC "maper-1.2.3" {
   };
 } ''
   mkdir -p $out/bin $out/lib/maper
-  cp ${src}/{maper,launchlist-gen,generic-functions,run-maper-example-generate.sh} $out/lib/maper
+  cp ${src}/{maper,launchlist-gen,run-maper-example-generate.sh,generic-functions} $out/lib/maper
+  chmod u+w $out/lib/maper/generic-functions
+  echo "export PATH='${binpath}'" >>$out/lib/maper/generic-functions
+  sed -i "s^##nix-path-goes-here##^source $out/lib/maper/generic-functions^" $out/lib/maper/run-maper-example-generate.sh
   for f in $out/lib/maper/* ; do patchShebangs $f ; done
   cp ${src}/neutral.dof.gz $out/lib/maper
   ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example-generate.sh} $out/bin

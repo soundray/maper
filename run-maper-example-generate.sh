@@ -37,6 +37,7 @@ cat >run-maper-example.sh <<EOF
 set -e 
 ### Set paths here
 
+##nix-path-goes-here##
 # export PATH=/opt/mirtk/bin:\$PATH
 # export PATH=/opt/niftyseg/seg-apps:\$PATH
 
