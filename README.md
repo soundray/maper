@@ -106,9 +106,10 @@ given location, including the source description csv file. Point
 
 ### Multithreaded registration
 
-In addition to the parallelization with `xargs` noted under *Instructions* 
-above, MAPER supports threaded execution of MIRTK commands, if MIRTK is built 
-with TBB support. This is less memory-intensive than shell-level 
-parallelization. Use the `-threads` option to `launchlist-gen` and `maper`.
+In addition to the parallelization approach with `xargs` noted under 
+*Instructions* above, MAPER supports threaded execution of MIRTK 
+commands, if MIRTK is built with TBB support. This is less 
+memory-intensive than shell-level parallelization. Use the `-threads` 
+option to `launchlist-gen` and `maper`.
 
 Feedback welcome at metrimorphics@soundray.de
