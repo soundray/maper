@@ -77,8 +77,8 @@ bash run-maper-example.sh
 This downloads a mini-set of atlases with seven members and runs MAPER 
 with one of the atlas images as the target.
 
-Simple invocation for a single image using the mini-atlas from the 
-above example. The image is assumed to be a T1-weighted 3D 
+Use the following to invoke MAPER for a single image using the mini-atlas 
+from the above example. The image is assumed to be a T1-weighted 3D 
 skullstripped MR, ie. every non-brain voxel is set to zero 
 intensity, and the image file is stored in `~/testrun/mybrain-T1w.nii.gz`:
 ```
@@ -103,5 +103,12 @@ hammers_mith-ancillaries.sh ~/atlas ~/atlas/ancillaries
 This will download and unpack the ancillary data needed for MAPER in the 
 given location, including the source description csv file. Point 
 `launchlist-gen` to this file via the `-src-description` option.
+
+### Multithreaded registration
+
+In addition to the parallelization with `xargs` noted under *Instructions* 
+above, MAPER supports threaded execution of MIRTK commands, if MIRTK is built 
+with TBB support. This is less memory-intensive than shell-level 
+parallelization. Use the `-threads` option to `launchlist-gen` and `maper`.
 
 Feedback welcome at metrimorphics@soundray.de
