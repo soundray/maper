@@ -43,7 +43,7 @@ if [[ ! -e $atlas.tar ]] ; then
     dlcommand="wget -O -"
     # url=https://github.com/soundray/maper/releases/download/0.9.1-rc/$atlas.tar
     url=https://soundray.org/maper/$atlas.tar
-    type wget >/dev/null 2>&1 || dlcommand="curl --output -"
+    type wget >/dev/null 2>&1 || dlcommand="curl -fL"
     echo $dlcommand $url 
     $dlcommand $url >$atlas.tar || fatal "Download failed. wget or curl must be installed"
 fi
