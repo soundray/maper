@@ -190,13 +190,14 @@ tc3() { ### Tissue classification
 	return
     fi
 
-    seg_maths "$input"/mri.nii.gz brain
     seg_maths "$input"/mask.nii.gz mask
 
     if [[ -s "$input"/tc3raw.nii.gz ]] ; then
 	cp "$input"/tc3raw.nii.gz tc3raw.nii.gz
     else
-	seg_EM -in brain -out tc3raw -bc_out bcout -nopriors 3 -mask mask
+	seg_maths "$input"/mri.nii.gz brain
+	seg_EM -in brain -out tc3raw.nii.gz -bc_out bcout -nopriors 3 -mask mask
+	cp tc3raw.nii.gz "$outdir"
     fi
 
     # Generate crisp labels
@@ -353,7 +354,7 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $debug ]] && cp -a $td "$outdir"
 [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
 [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
-[[ $tc3only ]] && exit 0
+[[ $tc3only -ne 0 ]] && exit 0
 
 ### Fusion if numbers suffice
 
