@@ -188,13 +188,14 @@ tc3() { ### Tissue classification
 	return
     fi
 
-    seg_maths "$input"/mri.nii.gz brain
     seg_maths "$input"/mask.nii.gz mask
 
     if [[ -s "$input"/tc3raw.nii.gz ]] ; then
 	cp "$input"/tc3raw.nii.gz tc3raw.nii.gz
     else
-	seg_EM -in brain -out tc3raw -bc_out bcout -nopriors 3 -mask mask
+	seg_maths "$input"/mri.nii.gz brain
+	seg_EM -in brain -out tc3raw.nii.gz -bc_out bcout -nopriors 3 -mask mask
+	cp tc3raw.nii.gz "$outdir"
     fi
 
     # Generate crisp labels
