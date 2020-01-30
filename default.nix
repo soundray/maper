@@ -1,6 +1,6 @@
 {
-  # nixos-19.03 as of 2019-10-04
-  pkgsPath ? builtins.fetchTarball https://github.com/nixos/nixpkgs/archive/6420e2649fa9e267481fb78e602022dab9d1dcd1.tar.gz
+  # nixos-19.09 as of 2019-12-29
+  pkgsPath ? builtins.fetchTarball https://github.com/nixos/nixpkgs/archive/eab4ee0c27c5c6f622aa0ca55091c394a9e33edd.tar.gz
   # nixpkgs to use
 , pkgs ? import pkgsPath {}
 }:

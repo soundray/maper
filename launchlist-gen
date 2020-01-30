@@ -124,7 +124,7 @@ tail -n +2 "$srcdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n
 	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
 		$(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels" ) >/dev/null
 	fi
-	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
+	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -threads $threads \
 	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels") >>$launchlist
     done 
 done 
