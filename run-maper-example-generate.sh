@@ -37,6 +37,7 @@ cat >run-maper-example.sh <<EOF
 set -e 
 ### Set paths here
 
+##nix-path-goes-here##
 # export PATH=/opt/mirtk/bin:\$PATH
 # export PATH=/opt/niftyseg/seg-apps:\$PATH
 
@@ -98,7 +99,7 @@ if [[ ! -e \$atlas.tar ]] ; then
     dlcommand="wget -O -"
     url=https://github.com/soundray/maper/releases/download/0.9.0-rc/\$atlas.tar
     # url=https://soundray.org/maper/\$atlas.tar
-    type wget >/dev/null 2>&1 || dlcommand="curl --output -"
+    type wget >/dev/null 2>&1 || dlcommand="curl -fL --output -"
     \$dlcommand \$url >\$atlas.tar || fatal "Download failed. wget or curl must be installed"
 fi
 [[ ! -e \$atlas.tar ]] && fatal "No tarfile found -- something went wrong"
