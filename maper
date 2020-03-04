@@ -126,14 +126,14 @@ do
 	-srcid)          srcid="$2" ; shift ;;
 	-srcop)          srcop=$(realpath "$2") ; shift ;;
 	-srcmri)        srcmri=$(realpath "$2") ; shift ;;
-	-srctc3)     srctc3raw=$(realpath "$2") ; shift ;;
+	-srctc3raw)  srctc3raw=$(realpath "$2") ; shift ;;
 	-srcmask)      srcmask=$(realpath "$2") ; shift ;;
 	-srclabels)   isrcsegs="$isrcsegs "$2 ; (( nsrcsegs += 1 )) ; shift ;;
 	-spn)              spn=$(realpath "$2") ; shift ;;
 	-tgtid)          tgtid="$2" ; shift ;;
 	-tgtop)          tgtop=$(realpath "$2") ; shift ;;
 	-tgtmri)        tgtmri=$(realpath "$2") ; shift ;;
-	-tgttc3)     tgttc3raw=$(realpath "$2") ; shift ;;
+	-tgttc3raw)  tgttc3raw=$(realpath "$2") ; shift ;;
 	-tgtmask)      tgtmask=$(realpath "$2") ; shift ;;
 	-tgtlabels)   itgtsegs="$itgtsegs "$2 ; (( ntgtsegs += 1 )) ; shift ;;
 	-tpn)              tpn=$(realpath "$2") ; shift ;;
