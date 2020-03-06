@@ -27,8 +27,10 @@ type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_m
 
 srcbase=
 srcdesc=
+srccache=
 tgtbase=
 tgtdesc=
+tgtcache=
 outdir=$PWD
 launchlist=launchlist.sh
 loocv=
@@ -41,8 +43,10 @@ do
     case "$1" in
 	-src-base)               srcbase=$(realpath "$2") ; shift ;;
 	-src-description)        srcdesc=$(realpath "$2") ; shift ;;
+	-src-cache)             srccache=$(realpath "$2") ; shift ;;
 	-tgt-base)               tgtbase=$(realpath "$2") ; shift ;;
 	-tgt-description)        tgtdesc=$(realpath "$2") ; shift ;;
+	-tgt-cache)             tgtcache=$(realpath "$2") ; shift ;;
 	-output-dir)              outdir=$(realpath "$2") ; shift ;;
 	-launchlist)          launchlist="$2" ; shift ;;
 	-threads)                threads="$2" ; shift ;;
@@ -121,10 +125,10 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 	[[ $srcargc -gt $srcitemn ]] && fatal "CSV items do not match header in $srcdesc"
 
 	if [[ ! $fastmode ]] ; then
-	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir \
+	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -srccache $srccache -tgtcache $tgtcache \
 		$(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels" ) >/dev/null
 	fi
-	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -threads $threads \
+	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -threads $threads -srccache $srccache -tgtcache $tgtcache \
 	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels") >>$launchlist
     done 
 done 
