@@ -11,6 +11,7 @@ let
     "$out/bin" # sample needs maper on PATH
     "${pkgs.mirtk}/bin"
     "${pkgs.niftyseg}/bin"
+    "${pkgs.niftyreg}/bin"
     "${pkgs.coreutils}/bin" # For date
     "${pkgs.curl}/bin" # For example script to download sample data
     "${pkgs.gnutar}/bin" # For example script to unpack sample data
