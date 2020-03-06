@@ -20,29 +20,32 @@ usage() {
     
     <source_spec> consists of either
 
-           [-srcop src-onepad.nii.gz]
+       [-srcop src-onepad.nii.gz]
 
-        or
+       or
 
-           [-srcmri src-mri.nii.gz]
+       [-srcmri src-mri.nii.gz]
 
-           plus
+          plus
 
-           [-srcmask src-brainmask.nii.gz]
-              If -srcmri is specified without -srcmask, a skullstripped image is assumed.
-              If -srcop is specified, its own masking takes precedence.
+          [-srcmask src-brainmask.nii.gz]
+             If -srcmri is specified without -srcmask, a skullstripped image is assumed.
+             If -srcop is specified, its own masking takes precedence.
 
-        [-srctc3raw src-three-tissue-class-probmap.nii.gz]
-           If not provided, this will be calculated.
+    [-srctc3raw src-three-tissue-class-probmap.nii.gz]
+       If not provided, this will be calculated.
 
-        [-spn pretransformation.dof.gz] 
-           This will be combined with the inverse of -tpn to achieve prealignment.
+    [-spn pretransformation.dof.gz] 
+       This will be combined with the inverse of -tpn to achieve prealignment.
 
-        [-srclabels name1:labelset1.nii.gz]
+    [-srclabels name1:labelset1.nii.gz]
 
-        [-srclabels name2:labelset2.nii.gz] 
-           Up to four allowed -- will be transformed according to registration result.
-    
+    [-srclabels name2:labelset2.nii.gz] 
+       Up to four allowed -- will be transformed according to registration result.
+     
+    [-srccache cache-dir/]
+       Location for storing tissue-class maps for later re-use
+ 
     <target_spec>
 
         [-tgtop tgt-onepad.nii.gz]
@@ -55,37 +58,41 @@ usage() {
 
         treated analogously to corresponding <source_spec> items.
 
-        [-tpn pretransformation.dof.gz] 
-           Obligatory if -spn specified. Either is ignored unless both are specified.
 
-        [-tgtlabels name1:labelset1.nii.gz]
+    [-tpn pretransformation.dof.gz] 
+       Obligatory if -spn specified. Either is ignored unless both are specified.
 
-        [-tgtlabels name2:labelset2.nii.gz] 
-           TODO These will be used as reference for overlap assessment of transformed labels
+    [-tgtlabels name1:labelset1.nii.gz]
+
+    [-tgtlabels name2:labelset2.nii.gz] 
+       TODO These will be used as reference for overlap assessment of transformed labels
     
-        [-atlasn NN]
-              If NN source transformations are found for TargetID in -output-dir, 
-              label fusion will be performed.
+    [-tgtcache cache-dir/]
+       Location for storing tissue-class maps for later re-use
 
-        [-tc3out]
-           Raw three-class tissue probability map for target image will be saved 
-           (compressed file size is ca. 5 × input image)
+    [-atlasn NN]
+          If NN source transformations are found for TargetID in -output-dir, 
+          label fusion will be performed.
 
-        [-tc3crisp]
-           Discrete three-class tissue map for target image will be saved 
+    [-tc3out]
+       Raw three-class tissue probability map for target image will be saved 
+       (compressed file size is ca. 5 × input image)
 
-        [-tc3only]
-           Exit after tc3 generation
+    [-tc3crisp]
+       Discrete three-class tissue map for target image will be saved 
 
-        [-quicktest] 
-           For accelerated run (very coarse result)
+    [-tc3only]
+       Exit after tc3 generation
 
-        [-dry-run] 
-           Test if options correctly specified. Perform label fusion if -atlasn also 
-           specified.
+    [-quicktest] 
+       For accelerated run (very coarse result)
 
-        [-debug]
-           To save temporary working directory to -output-dir location
+    [-dry-run] 
+       Test if options correctly specified. Perform label fusion if -atlasn also 
+       specified.
+
+    [-debug]
+       To save temporary working directory to -output-dir location
 
 EOF
 }
