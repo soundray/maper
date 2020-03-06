@@ -44,7 +44,7 @@ usage() {
        Up to four allowed -- will be transformed according to registration result.
      
     [-srccache cache-dir/]
-       Location for storing tissue-class maps for later re-use
+       Location for storing intermediate files for later re-use
  
     <target_spec>
 
@@ -58,7 +58,6 @@ usage() {
 
         treated analogously to corresponding <source_spec> items.
 
-
     [-tpn pretransformation.dof.gz] 
        Obligatory if -spn specified. Either is ignored unless both are specified.
 
@@ -68,7 +67,8 @@ usage() {
        TODO These will be used as reference for overlap assessment of transformed labels
     
     [-tgtcache cache-dir/]
-       Location for storing tissue-class maps for later re-use
+       Location for storing intermediate files for later re-use. Should normally be 
+       different from -srccache 
 
     [-atlasn NN]
           If NN source transformations are found for TargetID in -output-dir, 
@@ -112,6 +112,7 @@ srcmask=null
 nsrcsegs=0
 srctc3raw=null
 spn=neutral.dof.gz
+srccache=
 tgtop=null
 tgtmri=null
 tgtmask=null
@@ -119,6 +120,7 @@ itgtsegs=
 ntgtsegs=0
 tgttc3raw=null
 tpn=neutral.dof.gz
+tgtcache=
 outdir=$PWD/maper-$$
 atlasn=
 tc3out=
@@ -137,6 +139,7 @@ do
 	-srcmask)      srcmask=$(realpath "$2") ; shift ;;
 	-srclabels)   isrcsegs="$isrcsegs "$2 ; (( nsrcsegs += 1 )) ; shift ;;
 	-spn)              spn=$(realpath "$2") ; shift ;;
+	-srccache)    srccache=$(realpath "$2") ; shift ;;
 	-tgtid)          tgtid="$2" ; shift ;;
 	-tgtop)          tgtop=$(realpath "$2") ; shift ;;
 	-tgtmri)        tgtmri=$(realpath "$2") ; shift ;;
@@ -144,6 +147,7 @@ do
 	-tgtmask)      tgtmask=$(realpath "$2") ; shift ;;
 	-tgtlabels)   itgtsegs="$itgtsegs "$2 ; (( ntgtsegs += 1 )) ; shift ;;
 	-tpn)              tpn=$(realpath "$2") ; shift ;;
+	-tgtcache)    tgtcache=$(realpath "$2") ; shift ;;
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
 	-threads)      threads="$2" ; shift ;;
@@ -298,9 +302,9 @@ onepadgen() { ### Generate onepad images
     if [[ -z $dryrun ]] ; then
 	[[ -s "$mri" ]] || return 1
 
-	mirtk dilate-image mask.nii.gz mask-dil.nii.gz -iterations 6 
-	mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii.gz -threads $threads
-	mirtk calculate-element-wise mask-dil.nii.gz - mask.nii.gz + masked.nii.gz = "$onepad" -threads $threads
+	mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6 
+	mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads $threads
+	mirtk calculate-element-wise mask-dil.nii - mask.nii.gz + masked.nii = "$onepad" -threads $threads
     fi
 
     cd ..
@@ -312,6 +316,26 @@ d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc 
 msg "=== Preparation: staging files and generating onepad images ==="
 
 mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
+
+if [[ -n $srccache ]] ; then
+    srccache_=$srccache/$srcid
+    if mkdir -p $srccache_ ; then
+	msg "Source cache $srccache/$srcid okay"
+    else
+	msg "Could not create source cache $srccache/$srcid -- not caching source intermediates"
+	unset srccache_
+    fi
+fi
+
+if [[ -n $tgtcache ]] ; then
+    tgtcache_=$tgtcache/$tgtid
+    if mkdir -p $tgtcache_ ; then
+	msg "Target cache $tgtcache/$tgtid okay"
+    else
+	msg "Could not create target cache $tgtcache/$tgtid -- not caching target intermediates"
+	unset tgtcache_
+    fi
+fi
 
 td=$(tempdir)
 trap finish EXIT
@@ -342,9 +366,23 @@ onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
 
 ### Main routine
 
-echo "=== Generating tissue-class probability maps ==="
-tc3 src src
-tc3 tgt tgt
+set --
+[[ -n $srccache_ ]] && set -- $srccache_/*
+if [[ $# -gt 8 ]] ; then
+    cp "$@" src
+else
+    echo "=== Generating tissue-class probability maps for source ==="
+    tc3 src src
+fi
+
+set --
+[[ -n $tgtcache_ ]] && set -- $tgtcache_/*
+if [[ $# -gt 8 ]] ; then
+    cp "$@" tgt
+else
+    echo "=== Generating tissue-class probability maps for target ==="
+    tc3 tgt tgt
+fi
 
 if [[ $tc3only == 0 ]] ; then
     echo "=== Registration and propagation ==="
@@ -359,6 +397,8 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
 [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
 [[ $tc3only -ne 0 ]] && exit 0
+[[ -n $srccache_ ]] && cp src/* $srccache_/
+[[ -n $tgtcache_ ]] && cp tgt/* $tgtcache_/
 
 ### Fusion if numbers suffice
 
