@@ -169,16 +169,17 @@ for i in $isrcsegs ; do
     set -- $(echo $i | tr ':' ' ' )
     segname=$1 ; shift
     ii=$(realpath $1) 
-    [[ -e $ii ]] || fatal "Source seg $i does not exist"
+    [[ -e $ii ]] || msg "Source seg $i does not exist"
     sourceseg["$segname"]=$ii
 done
+[[ ${#sourceseg[@]} -lt 1 ]] && msg "No source segmentation defined"
 
 declare -A targetseg
 for i in $itgtsegs ; do
     set -- $(echo $i | tr ':' ' ' )
     segname=$1 ; shift
     ii=$(realpath $1)
-    [[ -e $ii ]] || fatal "Target seg $i does not exist"
+    [[ -e $ii ]] || msg "Target seg $i does not exist"
     targetseg["$segname"]=$ii
 done
 
@@ -248,25 +249,39 @@ regprop() {  ### Registration and label propagation
 	    mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
 	    convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
 
-	    reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads \
-		    --kld -ln 3 -sx -10 -aff prealign.txt -cpp cpp-int.nii.gz -res mrtr-int.nii.gz \
-		| while read i ; do msg "[$srcid-$tgtid] $i" ; done
-	    convert-dof cpp-int.nii.gz coarse.dof.gz -input-format f3d -output-format mirtk_bspline_ffd
+            mirtk register \
+                  "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
+                  "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
+                  -dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 2 \
+                  -par "Energy function" "SSD(I1, I4 o T) + SSD(I2, I5 o T) + SSD(I3, I6 o T) + 1e-3 BE(T)" \
+		  -ds $ds -threads $threads | while read i ; do msg "[$srcid-$tgtid] $i" ; done
 
-	    cat >fine-reg.par <<EOF 
-Strict step length range         = No
-Maximum streak of rejected steps = 2
-EOF
+	    # # Alternative using NiftyReg with KLD dissimilarity measure
+	    # reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads -aff prealign.txt\
+	    # 	    --kld -ln 2 -sx -10 -cpp cpp-int.nii.gz -res mrtr-int.nii.gz \
+	    # 	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
+	    # convert-dof cpp-int.nii.gz coarse.dof.gz -input-format f3d -output-format mirtk_bspline_ffd
 
 	    mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-		  -dofin coarse.dof.gz -dofout "$dof" \
-		  -bg 0 -model FFD -levels 2 1 -ds $ds -threads $threads \
-		  -par "Strict step length range" "No" \
-		  -par "Maximum streak of rejected steps" 2 \
-		| while read i ; do msg "[$srcid-$tgtid] $i" ; done
+	    	  -dofin coarse.dof.gz -dofout fine.dof.gz \
+	    	  -bg 0 -model FFD -levels 2 1 -ds $ds -threads $threads \
+	    	  -par "Strict step length range" "No" \
+	    	  -par "Maximum streak of rejected steps" 2 \
+	    	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
+	    cp fine.dof.gz "$dof"
 	fi
     fi
 
+    if [[ $debug ]] ; then
+	transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+	echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
+	for i in coarse fine ; do
+	    transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+	    echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t " 
+	done
+	echo
+    fi	
+	
     # c=0
     for i in ${!sourceseg[@]} ; do
 	srcseg=${sourceseg["$i"]}
@@ -295,7 +310,7 @@ onepadgen() { ### Generate onepad images
     fi
 
     if [[ ! -s "$mask" ]] ; then
-	seg_maths "$mri" -bin "$mask"
+	seg_maths "$mri" -bin -fill "$mask"
     fi
     cp "$mask" mask.nii.gz
 
@@ -304,7 +319,7 @@ onepadgen() { ### Generate onepad images
 
 	mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6 
 	mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads $threads
-	mirtk calculate-element-wise mask-dil.nii - mask.nii.gz + masked.nii = "$onepad" -threads $threads
+	mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads $threads
     fi
 
     cd ..
