@@ -293,7 +293,7 @@ regprop() {  ### Registration and label propagation
 	    mirtk transform-image $srcseg "$autoseg" \
 		-dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
 	    read min max <<< $( seg_stats "$autoseg" -r )
-	    seg_maths "$tgt"/crisp.nii.gz -mul $[max + 1] -add "$autosegtc" 
+	    seg_maths "$tgt"/crisp.nii.gz -mul $[max + 1] -add "$autoseg" "$autosegtc" 
 	fi
     done
 
