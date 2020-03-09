@@ -184,7 +184,7 @@ for i in $itgtsegs ; do
 done
 
 baseoutdir=$outdir
-outdir="$outdir/$srcid-$tgtid"
+outdir="$outdir/$tgtid/$srcid-$tgtid"
 
 ### Functions
 
@@ -431,7 +431,7 @@ fuse() {
 
 if [[ $atlasn -ge 3 ]] ; then
     for i in ${!sourceseg[@]} ; do
-	set -- "$baseoutdir"/*-$tgtid/seg/"$i".nii.gz
+	set -- "$baseoutdir"/$tgtid/*-$tgtid/seg/"$i".nii.gz
 	nready=$#
 	if [[ $nready -ge $atlasn ]] ; then
 
