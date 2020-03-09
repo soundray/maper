@@ -423,8 +423,9 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 fuse() {
     fused=$1 ; shift
     first=$1 ; shift
-    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
-    seg_LabFusion -in merged-$i.nii.gz -MV -out $fused
+    seg_maths $first -merge $# 4 $* merged-$i.nii
+    seg_LabFusion -in merged-$i.nii -MV -out $fused
+    rm merged-$i.nii
 }
 
 
