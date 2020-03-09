@@ -292,8 +292,6 @@ regprop() {  ### Registration and label propagation
 	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
 	    mirtk transform-image $srcseg "$autoseg" \
 		-dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
-	    read min max <<< $( seg_stats "$autoseg" -r )
-	    seg_maths "$tgt"/crisp.nii.gz -mul $[max + 1] -add "$autoseg" "$autosegtc" 
 	fi
     done
 
@@ -423,14 +421,13 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 ### Fusion if numbers suffice
 
 fuse() {
-    fused=$1 ; shift
-    nfuse=$1 ; shift
-    first=$1 ; shift
-    seg_maths $first -merge $[nfuse-1] 4 $* merged-$i.nii
-    seg_LabFusion -in merged-$i.nii -MV -out $fused
-    rm merged-$i.nii
+    fused="$1" ; shift
+    nfuse="$1" ; shift
+    first="$1" ; shift
+    seg_maths "$first" -merge $[nfuse-1] 4 $* merged.nii
+    seg_LabFusion -in merged.nii -MV -out $fused
+    rm merged.nii
 }
-
 
 if [[ $atlasn -ge 3 ]] ; then
     for i in ${!sourceseg[@]} ; do
@@ -438,22 +435,24 @@ if [[ $atlasn -ge 3 ]] ; then
 	nready=$#
 	if [[ $nready -ge $atlasn ]] ; then
 
-	    # Fuse regular output
+	    # Fuse output
 	    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
-	    fuse $thisseg.nii.gz $# $*
+	    fuse "$thisseg".nii.gz $# $*
+
+	    # Generate tissue-class separated output
+	    read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
+	    sep=$[max + 1]
+	    seg_maths "$tgt"/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz 
+
+	    # Compare fused with reference
 	    ref=${targetseg["$i"]} 
 	    if [[ -s $ref ]] ; then
-		seg_stats $ref -d $thisseg.nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv 
+		seg_stats $ref -d "$thisseg".nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv 
 		( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do 
-			echo $region, $(d2j $dsc) ; done ) >$thisseg-indivjc.csv
-		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >$thisseg-meanjc.csv
+			echo $region, $(d2j $dsc) ; done ) >"$thisseg"-indivjc.csv
+		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$thisseg"-meanjc.csv
 	    fi
 
-	    # Fuse tc-separated output
-	    set -- "$baseoutdir"/*-$tgtid/seg/"$i"-tcsep.nii.gz
-	    thisseg="$baseoutdir"/f$nready-"$i"-tcsep-$tgtid
-	    fuse $thisseg.nii.gz $# $*
-	    
 	fi
     done
 fi
