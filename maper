@@ -254,7 +254,7 @@ regprop() {  ### Registration and label propagation
                   "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
                   -dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 2 \
                   -par "Energy function" "SSD(I1, I4 o T) + SSD(I2, I5 o T) + SSD(I3, I6 o T) + 1e-3 BE(T)" \
-		  -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log; done
+		  -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log 2>&1 ; done
 
 	    # # Alternative using NiftyReg with KLD dissimilarity measure
 	    # reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads -aff prealign.txt\
@@ -267,7 +267,7 @@ regprop() {  ### Registration and label propagation
 	    	  -bg 0 -model FFD -levels 2 1 -ds $ds -threads $threads \
 	    	  -par "Strict step length range" "No" \
 	    	  -par "Maximum streak of rejected steps" 2 \
-	    	| while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir"/reg.log; done
+	    	| while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir"/reg.log 2>&1 ; done
 	    cp fine.dof.gz "$dof"
 
 	    if [[ $debug ]] ; then
