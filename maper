@@ -287,10 +287,13 @@ regprop() {  ### Registration and label propagation
 	srcseg=${sourceseg["$i"]}
 	if [[ -s $srcseg ]] ; then 
 	    autoseg="$autosegdir"/$i.nii.gz 
+	    autosegtc="$autosegdir"/$i-tcsep.nii.gz 
 	    [[ -e "$autoseg" ]] && continue
 	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
 	    mirtk transform-image $srcseg "$autoseg" \
 		-dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
+	    read min max <<< $( seg_stats "$autoseg" -r )
+	    seg_maths "$tgt"/crisp.nii.gz -mul $[max + 1] -add "$autosegtc" 
 	fi
     done
 
@@ -417,15 +420,23 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 
 ### Fusion if numbers suffice
 
+fuse() {
+    fused=$1 ; shift
+    first=$1 ; shift
+    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
+    seg_LabFusion -in merged-$i.nii.gz -MV -out $fused
+}
+
+
 if [[ $atlasn -ge 3 ]] ; then
     for i in ${!sourceseg[@]} ; do
 	set -- "$baseoutdir"/*-$tgtid/seg/"$i".nii.gz
 	nready=$#
 	if [[ $nready -ge $atlasn ]] ; then
-	    first=$1 ; shift
-	    seg_maths $first -merge $# 4 $* merged-$i.nii.gz
+
+	    # Fuse regular output
 	    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
-	    seg_LabFusion -in merged-$i.nii.gz -MV -out $thisseg.nii.gz
+	    fuse $thisseg.nii.gz $#
 	    ref=${targetseg["$i"]} 
 	    if [[ -s $ref ]] ; then
 		seg_stats $ref -d $thisseg.nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv 
@@ -433,6 +444,12 @@ if [[ $atlasn -ge 3 ]] ; then
 			echo $region, $(d2j $dsc) ; done ) >$thisseg-indivjc.csv
 		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >$thisseg-meanjc.csv
 	    fi
+
+	    # Fuse tc-separated output
+	    set -- "$baseoutdir"/*-$tgtid/seg/"$i"-tcsep.nii.gz
+	    thisseg="$baseoutdir"/f$nready-"$i"-tcsep-$tgtid
+	    fuse $thisseg.nii.gz $#
+	    
 	fi
     done
 fi
