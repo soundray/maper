@@ -387,7 +387,7 @@ onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
 set --
 [[ -n $srccache_ ]] && set -- $srccache_/*
 if [[ $# -gt 8 ]] ; then
-    cp -v "$@" src
+    cp "$@" src
 else
     msg "=== Generating tissue-class probability maps for source ==="
     tc3 src src
@@ -397,7 +397,7 @@ fi
 set --
 [[ -n $tgtcache_ ]] && set -- $tgtcache_/*
 if [[ $# -gt 8 ]] ; then
-    cp -v "$@" tgt
+    cp "$@" tgt
 else
     msg "=== Generating tissue-class probability maps for target ==="
     tc3 tgt tgt
