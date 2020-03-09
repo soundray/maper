@@ -410,16 +410,16 @@ if [[ $tc3only == 0 ]] ; then
 fi
 
 ### Stage out results
-set -vx
+
 cp -r regout/* "$outdir"/
 cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $debug ]] && cp -a $td "$outdir"
 [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
 [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
 [[ $tc3only -ne 0 ]] && exit 0
-[[ -n $srccache_ -a $fillsrccache ]] && cp src/* $srccache_/
-[[ -n $tgtcache_ -a $filltgtcache ]] && cp tgt/* $tgtcache_/
-set +vx
+[[ $fillsrccache == 1 ]] && cp src/* $srccache_/
+[[ $filltgtcache == 1 ]] && cp tgt/* $tgtcache_/
+
 ### Fusion if numbers suffice
 
 fuse() {
