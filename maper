@@ -254,7 +254,7 @@ regprop() {  ### Registration and label propagation
                   "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
                   -dofin prealign.dof.gz -dofout coarse.dof.gz -bg 0 -model Rigid+Affine+FFD -levels 4 2 \
                   -par "Energy function" "SSD(I1, I4 o T) + SSD(I2, I5 o T) + SSD(I3, I6 o T) + 1e-3 BE(T)" \
-		  -ds $ds -threads $threads | while read i ; do msg "[$srcid-$tgtid] $i" ; done
+		  -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log; done
 
 	    # # Alternative using NiftyReg with KLD dissimilarity measure
 	    # reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads -aff prealign.txt\
@@ -267,7 +267,7 @@ regprop() {  ### Registration and label propagation
 	    	  -bg 0 -model FFD -levels 2 1 -ds $ds -threads $threads \
 	    	  -par "Strict step length range" "No" \
 	    	  -par "Maximum streak of rejected steps" 2 \
-	    	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
+	    	| while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir"/reg.log; done
 	    cp fine.dof.gz "$dof"
 
 	    if [[ $debug ]] ; then
@@ -424,8 +424,9 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 
 fuse() {
     fused=$1 ; shift
+    nfuse=$1 ; shift
     first=$1 ; shift
-    seg_maths $first -merge $# 4 $* merged-$i.nii
+    seg_maths $first -merge $[nfuse-1] 4 $* merged-$i.nii
     seg_LabFusion -in merged-$i.nii -MV -out $fused
     rm merged-$i.nii
 }
@@ -439,7 +440,7 @@ if [[ $atlasn -ge 3 ]] ; then
 
 	    # Fuse regular output
 	    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
-	    fuse $thisseg.nii.gz $#
+	    fuse $thisseg.nii.gz $# $*
 	    ref=${targetseg["$i"]} 
 	    if [[ -s $ref ]] ; then
 		seg_stats $ref -d $thisseg.nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv 
@@ -451,7 +452,7 @@ if [[ $atlasn -ge 3 ]] ; then
 	    # Fuse tc-separated output
 	    set -- "$baseoutdir"/*-$tgtid/seg/"$i"-tcsep.nii.gz
 	    thisseg="$baseoutdir"/f$nready-"$i"-tcsep-$tgtid
-	    fuse $thisseg.nii.gz $#
+	    fuse $thisseg.nii.gz $# $*
 	    
 	fi
     done
