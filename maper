@@ -442,7 +442,7 @@ if [[ $atlasn -ge 3 ]] ; then
 	    # Generate tissue-class separated output
 	    read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
 	    sep=$[max + 1]
-	    seg_maths "$tgt"/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz 
+	    seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz 
 
 	    # Compare fused with reference
 	    ref=${targetseg["$i"]} 
