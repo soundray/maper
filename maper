@@ -269,18 +269,18 @@ regprop() {  ### Registration and label propagation
 	    	  -par "Maximum streak of rejected steps" 2 \
 	    	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
 	    cp fine.dof.gz "$dof"
+
+	    if [[ $debug ]] ; then
+		transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+		echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
+		for i in coarse fine ; do
+		    transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+		    echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t " 
+		done
+		echo
+	    fi	
 	fi
     fi
-
-    if [[ $debug ]] ; then
-	transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
-	echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
-	for i in coarse fine ; do
-	    transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
-	    echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t " 
-	done
-	echo
-    fi	
 	
     # c=0
     for i in ${!sourceseg[@]} ; do
@@ -387,19 +387,21 @@ onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
 set --
 [[ -n $srccache_ ]] && set -- $srccache_/*
 if [[ $# -gt 8 ]] ; then
-    cp "$@" src
+    cp -v "$@" src
 else
     msg "=== Generating tissue-class probability maps for source ==="
     tc3 src src
+    fillsrccache=1
 fi
 
 set --
 [[ -n $tgtcache_ ]] && set -- $tgtcache_/*
 if [[ $# -gt 8 ]] ; then
-    cp "$@" tgt
+    cp -v "$@" tgt
 else
     msg "=== Generating tissue-class probability maps for target ==="
     tc3 tgt tgt
+    filltgtcache=1
 fi
 
 if [[ $tc3only == 0 ]] ; then
@@ -408,16 +410,16 @@ if [[ $tc3only == 0 ]] ; then
 fi
 
 ### Stage out results
-
+set -vx
 cp -r regout/* "$outdir"/
 cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $debug ]] && cp -a $td "$outdir"
 [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
 [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
 [[ $tc3only -ne 0 ]] && exit 0
-[[ -n $srccache_ ]] && cp src/* $srccache_/
-[[ -n $tgtcache_ ]] && cp tgt/* $tgtcache_/
-
+[[ -n $srccache_ -a $fillsrccache ]] && cp src/* $srccache_/
+[[ -n $tgtcache_ -a $filltgtcache ]] && cp tgt/* $tgtcache_/
+set +vx
 ### Fusion if numbers suffice
 
 fuse() {
