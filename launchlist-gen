@@ -124,11 +124,14 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 	done
 	[[ $srcargc -gt $srcitemn ]] && fatal "CSV items do not match header in $srcdesc"
 
+	cacheArgs=()
+	[[ -n "$srccache" ]] && cacheArgs+=(-srccache "$srccache")
+	[[ -n "$tgtcache" ]] && cacheArgs+=(-tgtcache "$tgtcache")
 	if [[ ! $fastmode ]] ; then
-	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -srccache $srccache -tgtcache $tgtcache \
+	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir "${cacheArgs[@]}" \
 		$(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels" ) >/dev/null
 	fi
-	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -threads $threads -srccache $srccache -tgtcache $tgtcache \
+	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -threads $threads "${cacheArgs[@]}" \
 	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels") >>$launchlist
     done 
 done 
