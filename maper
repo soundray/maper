@@ -247,7 +247,7 @@ regprop() {  ### Registration and label propagation
 	if [[ ! -e "$dof" ]] ; then
 
 	    mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
-	    convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
+	    mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
 
             mirtk register \
                   "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
