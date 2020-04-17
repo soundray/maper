@@ -82,57 +82,57 @@ enns=$(seq $srcitemn 7 | tr '[0-9]' 'n')
 read eins zwei drei vier funf sechs sieben acht <<<$( echo $* $enns )
 set -- $(head -n 1 "$tgtdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
 tgtitemn=$#
-enns=$(seq $tgtitems 7 | tr '[0-9]' 'n')
+enns=$(seq $tgtitemn 7 | tr '[0-9]' 'n')
 read ett tva tre fyra fem sex sju atta <<<$( echo $* $enns)
 
 atlasn=$(tail -n +2  "$srcdesc" | wc -l)
 tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read tgtline ; do
     tgtargc=0
     unset tgtarr ; declare -A tgtarr
+    tgtArgs=()
     read tgtarr["$ett"] tgtarr["$tva"] tgtarr["$tre"] tgtarr["$fyra"] tgtarr["$fem"] tgtarr["$sex"] tgtarr["$sju"] tgtarr["$atta"] <<<$(echo $tgtline | tr ',' ' ')
     [[ $loocv ]] && [[ $srcid == ${tgtarr["id"]} ]] && (( atlasn -= 1 )) && continue
-    [[ -n ${tgtarr["id"]} ]]                && (( tgtargc += 1 )) &&     tgtid="${tgtarr["id"]}"                              && unset tgtarr["id"]
-    [[ -n ${tgtarr["mri"]} ]]               && (( tgtargc += 1 )) &&    tgtmri="-tgtmri $tgtbase/${tgtarr["mri"]}"            && unset tgtarr["mri"]
-    [[ -n ${tgtarr["brainmask"]} ]]         && (( tgtargc += 1 )) &&   tgtmask="-tgtmask $tgtbase/${tgtarr["brainmask"]}"     && unset tgtarr["brainmask"]
-    [[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) &&     tgtop="-tgtop $tgtbase/${tgtarr["onepad"]}"          && unset tgtarr["onepad"]
-    [[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) &&    tgttc3="-tgttc3 $tgtbase/${tgtarr["tc3raw"]}"         && unset tgtarr["tc3raw"]
-    [[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) &&       tpn="-tpn $tgtbase/${tgtarr["pretransformation"]}" && unset tgtarr["pretransformation"]
+    [[ -n ${tgtarr["id"]} ]]                && (( tgtargc += 1 )) && tgtArgs+=(-tgtid "${tgtarr["id"]}")                              && unset tgtarr["id"]
+    [[ -n ${tgtarr["mri"]} ]]               && (( tgtargc += 1 )) && tgtArgs+=(-tgtmri "$tgtbase/${tgtarr["mri"]}")            && unset tgtarr["mri"]
+    [[ -n ${tgtarr["brainmask"]} ]]         && (( tgtargc += 1 )) && tgtArgs+=(-tgtmask "$tgtbase/${tgtarr["brainmask"]}")     && unset tgtarr["brainmask"]
+    [[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgtop "$tgtbase/${tgtarr["onepad"]}")          && unset tgtarr["onepad"]
+    [[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgttc3 "$tgtbase/${tgtarr["tc3raw"]}")         && unset tgtarr["tc3raw"]
+    [[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) && tgtArgs+=(-tpn "$tgtbase/${tgtarr["pretransformation"]}") && unset tgtarr["pretransformation"]
     
     tgtlabels=""
     for i in ${!tgtarr[@]} ; do
 	[[ $i == "n" ]] && continue
 	(( tgtargc += 1 ))
-	tgtlabels=$tgtlabels" -tgtlabels "$i:$tgtbase/${tgtarr["$i"]}" "
+	tgtArgs+=(-tgtlabels "$i:$tgtbase/${tgtarr["$i"]}")
     done
     [[ $tgtargc -gt $tgtitemn ]] && fatal "CSV items do not match header in $tgtdesc"
     
     tail -n +2 "$srcdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read srcline ; do
 	unset srcarr ; declare -A srcarr
+	maperArgs=("${tgtArgs[@]}" $qt -atlasn "$atlasn" -output-dir "$outdir" -threads "$threads")
 	srcargc=0
 	read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
-	[[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) &&   srcid="${srcarr["id"]}"                              && unset srcarr["id"]
-	[[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) &&  srcmri="-srcmri $srcbase/${srcarr["mri"]}"            && unset srcarr["mri"]
-	[[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && srcmask="-srcmask $srcbase/${srcarr["brainmask"]}"     && unset srcarr["brainmask"]
-	[[ -n ${srcarr["onepad"]} ]]            && (( srcargc += 1 )) &&   srcop="-srcop $srcbase/${srcarr["onepad"]}"          && unset srcarr["onepad"]
-	[[ -n ${srcarr["tc3raw"]} ]]            && (( srcargc += 1 )) &&  srctc3="-srctc3 $srcbase/${srcarr["tc3raw"]}"         && unset srcarr["tc3raw"]
-	[[ -n ${srcarr["pretransformation"]} ]] && (( srcargc += 1 )) &&     spn="-spn $srcbase/${srcarr["pretransformation"]}" && unset srcarr["pretransformation"]
+	[[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) && maperArgs+=(-srcid "${srcarr["id"]}")                              && unset srcarr["id"]
+	[[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) && maperArgs+=(-srcmri "$srcbase/${srcarr["mri"]}")            && unset srcarr["mri"]
+	[[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && maperArgs+=(-srcmask "$srcbase/${srcarr["brainmask"]}")     && unset srcarr["brainmask"]
+	[[ -n ${srcarr["onepad"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srcop "$srcbase/${srcarr["onepad"]}")          && unset srcarr["onepad"]
+	[[ -n ${srcarr["tc3raw"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srctc3 "$srcbase/${srcarr["tc3raw"]}")         && unset srcarr["tc3raw"]
+	[[ -n ${srcarr["pretransformation"]} ]] && (( srcargc += 1 )) && maperArgs+=(-spn "$srcbase/${srcarr["pretransformation"]}") && unset srcarr["pretransformation"]
 	srclabels=""
 	for i in ${!srcarr[@]} ; do
 	    [[ $i == "n" ]] && continue
 	    (( srcargc += 1 ))
-	    srclabels=$srclabels" -srclabels "$i:$srcbase/${srcarr["$i"]}" "
+	    maperArgs+=(-srclabels "$i:$srcbase/${srcarr["$i"]}")
 	done
 	[[ $srcargc -gt $srcitemn ]] && fatal "CSV items do not match header in $srcdesc"
 
-	cacheArgs=()
-	[[ -n "$srccache" ]] && cacheArgs+=(-srccache "$srccache")
-	[[ -n "$tgtcache" ]] && cacheArgs+=(-tgtcache "$tgtcache")
+	[[ -n "$srccache" ]] && maperArgs+=(-srccache "$srccache")
+	[[ -n "$tgtcache" ]] && maperArgs+=(-tgtcache "$tgtcache")
 	if [[ ! $fastmode ]] ; then
-	    $pdir/maper -dry-run $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir "${cacheArgs[@]}" \
-		$(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels" ) >/dev/null
-	fi
-	echo $pdir/maper $qt -atlasn $atlasn -srcid $srcid -tgtid $tgtid -output-dir $outdir -threads $threads "${cacheArgs[@]}" \
-	    $(echo "$runname" "$srcmri" "$srcmask" "$srcop" "$srctc3" "$spn" "$tgtmri" "$tgtmask" "$tgttc3" "$tgtop" "$tpn" "$srclabels" "$tgtlabels") >>$launchlist
+	    $pdir/maper -dry-run "${maperArgs[@]}"  >/dev/null
+	    fi
+	printf "%q " "$pdir"/maper ${maperArgs[@]} >>$launchlist
+	printf "\n" >>$launchlist
     done 
 done 
 
