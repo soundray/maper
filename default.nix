@@ -18,6 +18,7 @@ let
     "${pkgs.gnugrep}/bin"
     "${pkgs.gnused}/bin"
     "${pkgs.bc}/bin"
+    "${pkgs.utillinux}/bin"
   ];
 in pkgs.runCommandNoCC "maper-1.2.3" {
   meta = {
