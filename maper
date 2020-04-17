@@ -415,8 +415,8 @@ cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
 [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
 [[ $tc3only -ne 0 ]] && exit 0
-[[ $fillsrccache == 1 ]] && cp src/* $srccache_/
-[[ $filltgtcache == 1 ]] && cp tgt/* $tgtcache_/
+[[ $fillsrccache == 1 ]] && [[ -n $srccache_ ]] && cp src/* $srccache_/
+[[ $filltgtcache == 1 ]] && [[ -n $tgtcache_ ]] && cp tgt/* $tgtcache_/
 
 ### Fusion if numbers suffice
 
