@@ -14,9 +14,11 @@ cat <<EOF
     $pname - generates a shell script containing maper calls for each possible pairing 
                  from a source description and a target description
 
-    Usage: $pname -src-base atlasdir/ -src-description atlases.csv -tgt-base targetdir/ \\
-                          -tgt-description targets.csv -output-dir distinctname \\
-                          -launchlist outputfile.sh [-threads 1] [-loocv] [-fastmode]
+    Usage: $pname -src-base atlasdir/ -src-description atlases.csv [-src-cache cachedir/] \\
+                          -tgt-base targetdir/ -tgt-description targets.csv [-tgt-cache cachedir/] \\
+                          -output-dir distinctname -launchlist outputfile.sh \\
+                          [-threads 1] [-loocv] [-fastmode]
+                          
 
 EOF
 }
