@@ -197,7 +197,11 @@ tc3() { ### Tissue classification
     cd $tdl
 
     if [[ -n $dryrun ]] ; then
-	( cd $outdir ; touch csf.nii.gz gm.nii.gz wm.nii.gz crisp-csf.nii.gz crisp-gm.nii.gz crisp-wm.nii.gz crisp.nii.gz tc3.nii.gz )
+	( cd $outdir 
+	    for i in csf gm wm crisp-csf crisp-gm crisp-wm crisp tc3 ; do
+		touch $i.nii.gz
+	    done
+	)
 	cd ..
 	return
     fi
