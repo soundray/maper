@@ -303,6 +303,7 @@ regprop() {  ### Registration and label propagation
 }
 
 onepadgen() { ### Generate onepad images
+
     local mri=$(realpath "$1") ; shift
     local mask=$(realpath "$1") ; shift
     local onepad=$(realpath "$1") ; shift
@@ -323,8 +324,8 @@ onepadgen() { ### Generate onepad images
 	[[ -s "$mri" ]] || return 1
 
 	mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6 
-        mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads $threads
-        mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads $threads
+        mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads 1
+        mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads 1
     fi
 
     cd ..
