@@ -93,12 +93,12 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
     unset tgtarr ; declare -A tgtarr
     tgtArgs=()
     read tgtarr["$ett"] tgtarr["$tva"] tgtarr["$tre"] tgtarr["$fyra"] tgtarr["$fem"] tgtarr["$sex"] tgtarr["$sju"] tgtarr["$atta"] <<<$(echo $tgtline | tr ',' ' ')
-    [[ $loocv ]] && [[ $srcid == ${tgtarr["id"]} ]] && (( atlasn -= 1 )) && continue
+    tgtid=${tgtarr["id"]}
     [[ -n ${tgtarr["id"]} ]]                && (( tgtargc += 1 )) && tgtArgs+=(-tgtid "${tgtarr["id"]}")                              && unset tgtarr["id"]
     [[ -n ${tgtarr["mri"]} ]]               && (( tgtargc += 1 )) && tgtArgs+=(-tgtmri "$tgtbase/${tgtarr["mri"]}")            && unset tgtarr["mri"]
     [[ -n ${tgtarr["brainmask"]} ]]         && (( tgtargc += 1 )) && tgtArgs+=(-tgtmask "$tgtbase/${tgtarr["brainmask"]}")     && unset tgtarr["brainmask"]
     [[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgtop "$tgtbase/${tgtarr["onepad"]}")          && unset tgtarr["onepad"]
-    [[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgttc3 "$tgtbase/${tgtarr["tc3raw"]}")         && unset tgtarr["tc3raw"]
+    [[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgttc3raw "$tgtbase/${tgtarr["tc3raw"]}")         && unset tgtarr["tc3raw"]
     [[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) && tgtArgs+=(-tpn "$tgtbase/${tgtarr["pretransformation"]}") && unset tgtarr["pretransformation"]
     
     tgtlabels=""
@@ -114,11 +114,12 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 	maperArgs=("${tgtArgs[@]}" $qt -atlasn "$atlasn" -output-dir "$outdir" -threads "$threads")
 	srcargc=0
 	read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
+	[[ $loocv ]] && [[ $tgtid == ${srcarr["id"]} ]] && (( atlasn -= 1 )) && continue
 	[[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) && maperArgs+=(-srcid "${srcarr["id"]}")                              && unset srcarr["id"]
 	[[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) && maperArgs+=(-srcmri "$srcbase/${srcarr["mri"]}")            && unset srcarr["mri"]
 	[[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && maperArgs+=(-srcmask "$srcbase/${srcarr["brainmask"]}")     && unset srcarr["brainmask"]
 	[[ -n ${srcarr["onepad"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srcop "$srcbase/${srcarr["onepad"]}")          && unset srcarr["onepad"]
-	[[ -n ${srcarr["tc3raw"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srctc3 "$srcbase/${srcarr["tc3raw"]}")         && unset srcarr["tc3raw"]
+	[[ -n ${srcarr["tc3raw"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srctc3raw "$srcbase/${srcarr["tc3raw"]}")         && unset srcarr["tc3raw"]
 	[[ -n ${srcarr["pretransformation"]} ]] && (( srcargc += 1 )) && maperArgs+=(-spn "$srcbase/${srcarr["pretransformation"]}") && unset srcarr["pretransformation"]
 	srclabels=""
 	for i in ${!srcarr[@]} ; do
