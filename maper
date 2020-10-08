@@ -84,6 +84,9 @@ usage() {
     [-tc3only]
        Exit after tc3 generation
 
+    [-notc3]
+       Skip tissue mapping and tissue-class based prealignment
+
     [-quicktest] 
        For accelerated run (very coarse result)
 
@@ -126,6 +129,7 @@ atlasn=
 tc3out=
 tc3crisp=
 tc3only=0
+notc3=
 debug=
 threads=1
 [[ $# -lt 10 ]] && fatal "Parameter error"
@@ -154,6 +158,7 @@ do
 	-tc3out)        tc3out=1 ;;
 	-tc3crisp)    tc3crisp=1 ;;
 	-tc3only)      tc3only=1 ;;
+	-notc3)          notc3=1 ;;
 	-dry-run)       dryrun=1 ;;
 	-quicktest)  quicktest=1 ;;
 	-debug)          debug=1 ;;
@@ -163,6 +168,8 @@ do
     esac
     shift
 done
+
+[[ $notc3 == 1 && $[ $tc3out + $tc3crisp + $tc3only ] > 0 ]] && fatal "Parameter error: -notc3 is incompatible with -tc3 options"
 
 declare -A sourceseg
 for i in $isrcsegs ; do
@@ -257,25 +264,30 @@ regprop() {  ### Registration and label propagation
 		"$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0.dof.gz \
 		-model Rigid -levels 4 4 -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log 2>&1 ; done
 
-            mirtk register \
-                "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
-                "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
-                -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 2 \
-                -par "Energy function" "SSD(I1, I4 o T) + SSD(I2, I5 o T) + SSD(I3, I6 o T) + 1e-3 BE(T)" \
-		-ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
-
-	    # # Alternative using NiftyReg with KLD dissimilarity measure
-	    # reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads -aff prealign.txt\
-	    # 	    --kld -ln 2 -sx -10 -cpp cpp-int.nii.gz -res mrtr-int.nii.gz \
-	    # 	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
-	    # convert-dof cpp-int.nii.gz coarse.dof.gz -input-format f3d -output-format mirtk_bspline_ffd
+	    if [[ -z $notc3 ]] ; then
+		mirtk register \
+                    "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
+                    "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
+                    -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 2 \
+                    -par "Energy function" "SSD(I1, I4 o T) + SSD(I2, I5 o T) + SSD(I3, I6 o T) + 1e-3 BE(T)" \
+		    -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+		# # Alternative using NiftyReg with KLD dissimilarity measure
+		# reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads -aff prealign.txt\
+		# 	    --kld -ln 2 -sx -10 -cpp cpp-int.nii.gz -res mrtr-int.nii.gz \
+		# 	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
+		# convert-dof cpp-int.nii.gz coarse.dof.gz -input-format f3d -output-format mirtk_bspline_ffd
+		nextlevel=2
+	    else 
+		cp coarse0.dof.gz coarse1.dof.gz
+		nextlevel=4
+	    fi
 
 	    mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
 	    	  -dofin coarse1.dof.gz -dofout fine.dof.gz \
-	    	  -bg 0 -model FFD -levels 2 1 -ds $ds -threads $threads \
+	    	  -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
 	    	  -par "Strict step length range" "No" \
 	    	  -par "Maximum streak of rejected steps" 2 \
-	    	| while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir"/reg.log 2>&1 ; done
+	    	| while read i ; do echo "[$srcid-$tgtid] $i" ; done # >>"$outdir"/reg.log 2>&1 ; done
 	    cp fine.dof.gz "$dof"
 
 	    if [[ $debug ]] ; then
@@ -376,7 +388,7 @@ set -- "$outdir"/seg/*
 cp "$srcop" src/onepad.nii.gz
 cp "$srcmri" src/mri.nii.gz
 cp "$srcmask" src/mask.nii.gz
-cp "$srctc3raw" src/tc3raw.nii.gz
+[[ -z $notc3 ]] && cp "$srctc3raw" src/tc3raw.nii.gz
 cp "$spn" src/pre.dof.gz
 onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
     || usage "Source image not set. Either [-srcop file] or [-srcmri file] must be provided on commandline."
@@ -384,31 +396,33 @@ onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
 cp "$tgtmask" tgt/mask.nii.gz
-cp "$tgttc3raw" tgt/tc3raw.nii.gz
+[[ -z $notc3 ]] && cp "$tgttc3raw" tgt/tc3raw.nii.gz
 cp "$tpn" tgt/pre.dof.gz
 onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
     || usage "Target image not set. Either [-tgtop file] or [-tgtmri file] must be provided on commandline."
 
 ### Main routine
 
-set --
-[[ -n $srccache_ ]] && set -- $srccache_/*
-if [[ $# -gt 8 ]] ; then
-    cp "$@" src
-else
-    msg "=== Generating tissue-class probability maps for source ==="
-    tc3 src src
-    fillsrccache=1
-fi
+if [[ -z $notc3 ]] ; then
+    set --
+    [[ -n $srccache_ ]] && set -- $srccache_/*
+    if [[ $# -gt 8 ]] ; then
+	cp "$@" src
+    else
+	msg "=== Generating tissue-class probability maps for source ==="
+	tc3 src src
+	fillsrccache=1
+    fi
 
-set --
-[[ -n $tgtcache_ ]] && set -- $tgtcache_/*
-if [[ $# -gt 8 ]] ; then
-    cp "$@" tgt
-else
-    msg "=== Generating tissue-class probability maps for target ==="
-    tc3 tgt tgt
-    filltgtcache=1
+    set --
+    [[ -n $tgtcache_ ]] && set -- $tgtcache_/*
+    if [[ $# -gt 8 ]] ; then
+	cp "$@" tgt
+    else
+	msg "=== Generating tissue-class probability maps for target ==="
+	tc3 tgt tgt
+	filltgtcache=1
+    fi
 fi
 
 if [[ $tc3only == 0 ]] ; then
@@ -419,7 +433,7 @@ fi
 ### Stage out results
 
 cp -r regout/* "$outdir"/
-cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
+[[ -z $notc3 ]] && cp tgt/crisp-gm.nii.gz "$outdir"/tgt-gm.nii.gz
 [[ $debug ]] && cp -a $td "$outdir"
 [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
 [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
@@ -452,17 +466,19 @@ if [[ $atlasn -ge 3 ]] ; then
 		    fuse "$thisseg".nii.gz $# $*
 		
 		    # Generate tissue-class separated output
-		    read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
-		    sep=$[max + 1]
-		    seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-		
-		    # Compare fused with reference
-		    ref=${targetseg["$i"]}
-		    if [[ -s $ref ]] ; then
-			seg_stats $ref -d "$thisseg".nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv
-			( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do
-				echo $region, $(d2j $dsc) ; done ) >"$thisseg"-indivjc.csv
-			echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$thisseg"-meanjc.csv
+		    if [[ -z $notc3 ]] ; then
+			read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
+			sep=$[max + 1]
+			seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
+			
+			# Compare fused with reference
+			ref=${targetseg["$i"]}
+			if [[ -s $ref ]] ; then
+			    seg_stats $ref -d "$thisseg".nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv
+			    ( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do
+				    echo $region, $(d2j $dsc) ; done ) >"$thisseg"-indivjc.csv
+			    echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$thisseg"-meanjc.csv
+			fi
 		    fi
 		fi
 	    fi

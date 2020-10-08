@@ -39,6 +39,7 @@ loocv=
 threads=1
 fastmode=0
 quicktest=
+notc3=
 [[ $# -lt 6 ]] && fatal "Parameter error"
 while [ $# -gt 0 ]
 do
@@ -54,6 +55,7 @@ do
 	-threads)                threads="$2" ; shift ;;
 	-arch)                      arch="$2" ; shift ;;
 	-loocv)                    loocv=1 ;;
+        -notc3)                    notc3=1 ;; 
 	-fastmode)              fastmode=1 ;;
 	-quicktest)            quicktest=1 ;;
 	-*)
@@ -131,6 +133,7 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 
 	[[ -n "$srccache" ]] && maperArgs+=(-srccache "$srccache")
 	[[ -n "$tgtcache" ]] && maperArgs+=(-tgtcache "$tgtcache")
+        [[ $notc3 == 1 ]] && maperArgs+=(-notc3)
 	if [[ ! $fastmode ]] ; then
 	    $pdir/maper -dry-run "${maperArgs[@]}"  >/dev/null
 	    fi
