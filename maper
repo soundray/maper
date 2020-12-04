@@ -232,7 +232,7 @@ tc3() { ### Tissue classification
 
     # Get individual tc probability maps, subsample
     seg_maths tc3raw -tp 0 -mul 254 csf
-    seg_maths mask -dil 6 -add csf "$outdir"/csf.nii.gz
+    seg_maths mask -dil 3 -add csf "$outdir"/csf.nii.gz
     seg_maths tc3raw.nii.gz -tp 1 -mul 255 "$outdir"/gm.nii.gz
     seg_maths tc3raw.nii.gz -tp 2 -mul 255 "$outdir"/wm.nii.gz
     seg_maths "$outdir"/csf.nii.gz -merge 2 4 "$outdir"/gm.nii.gz "$outdir"/wm.nii.gz -div 255 "$outdir"/tc3.nii.gz
@@ -260,9 +260,12 @@ regprop() {  ### Registration and label propagation
 	    mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
 	    mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
 
+	    if [[ $notc3 == 1 ]] ; then lastrigidlevel=1 ; else lastrigidlevel=4 ; fi
+
 	    mirtk register \
 		"$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0.dof.gz \
-		-model Rigid -levels 4 4 -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log 2>&1 ; done
+		-model Rigid -levels 4 $lastrigidlevel -threads $threads \
+		| while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log 2>&1 ; done
 
 	    if [[ -z $notc3 ]] ; then
 		mirtk register \
@@ -278,7 +281,9 @@ regprop() {  ### Registration and label propagation
 		# convert-dof cpp-int.nii.gz coarse.dof.gz -input-format f3d -output-format mirtk_bspline_ffd
 		nextlevel=2
 	    else 
-		cp coarse0.dof.gz coarse1.dof.gz
+		mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+                    -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine -levels 4 1 \
+		    -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
 		nextlevel=4
 	    fi
 
@@ -287,7 +292,7 @@ regprop() {  ### Registration and label propagation
 	    	  -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
 	    	  -par "Strict step length range" "No" \
 	    	  -par "Maximum streak of rejected steps" 2 \
-	    	| while read i ; do echo "[$srcid-$tgtid] $i" ; done # >>"$outdir"/reg.log 2>&1 ; done
+	    	| while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir"/reg.log 2>&1 ; done
 	    cp fine.dof.gz "$dof"
 
 	    if [[ $debug ]] ; then
@@ -339,7 +344,7 @@ onepadgen() { ### Generate onepad images
     if [[ -z $dryrun ]] ; then
 	[[ -s "$mri" ]] || return 1
 
-	mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6 
+	mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 3
         mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads 1
         mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads 1
     fi
