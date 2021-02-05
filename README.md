@@ -82,6 +82,7 @@ from the above example. The image is assumed to be a T1-weighted 3D
 skullstripped MR, ie. every non-brain voxel is set to zero 
 intensity, and the image file is stored in `~/testrun/mybrain-T1w.nii.gz`:
 ```
+mkdir MAPER-MyBrain
 printf "id, mri\nMyBrain, mybrain-T1w.nii.gz\n" >target.csv
 launchlist-gen -src-description mini-atlas-n7r95/source-description.csv \
                -tgt-description target.csv \
