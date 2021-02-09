@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 ppath=$(realpath "$BASH_SOURCE")
 pdir=$(dirname "$ppath")
