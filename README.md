@@ -52,9 +52,10 @@ same, however.
 
 ### Platform
 
-Tested on Linux (NixOS 19.03, Ubuntu 16.04, CentOS 7).  Works well
-with multi-core and large-scale cluster architectures, as registering
-multiple atlas images to a target image is embarrassingly parallel.
+Tested on Linux (NixOS 19.03, Ubuntu 16.04, CentOS 7) and on MacOS (Big Sur, 
+with Bash updated to version 5).  Works well with multi-core and large-scale 
+cluster architectures, as registering multiple atlas images to a target image 
+is embarrassingly parallel.
 
 
 ### Dependencies
