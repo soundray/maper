@@ -265,7 +265,7 @@ regprop() {  ### Registration and label propagation
 	    mirtk register \
 		"$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0.dof.gz \
 		-model Rigid -levels 4 $lastrigidlevel -threads $threads \
-		| while read i ; do echo "[$srcid-$tgtid] $i" >"$outdir/"reg.log 2>&1 ; done
+		| while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
 
 	    if [[ -z $notc3 ]] ; then
 		mirtk register \
