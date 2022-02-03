@@ -137,7 +137,7 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 	if [[ ! $fastmode ]] ; then
 	    $pdir/maper -dry-run "${maperArgs[@]}"  >/dev/null
 	    fi
-	printf "%q " "$pdir"/maper ${maperArgs[@]} >>$launchlist
+	printf "%q " "$pdir"/maper ${maperArgs[@]} | sed 's/^[[:blank:]]*//; s/[[:blank:]]*$//' >>$launchlist
 	printf "\n" >>$launchlist
     done
 done
