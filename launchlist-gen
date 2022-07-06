@@ -4,21 +4,21 @@ ppath=$(realpath "$BASH_SOURCE")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
-set -e 
+set -e
 
 . "$pdir"/generic-functions
 
 usage() {
 cat <<EOF
 
-    $pname - generates a shell script containing maper calls for each possible pairing 
+    $pname - generates a shell script containing maper calls for each possible pairing
                  from a source description and a target description
 
     Usage: $pname -src-base atlasdir/ -src-description atlases.csv [-src-cache cachedir/] \\
                           -tgt-base targetdir/ -tgt-description targets.csv [-tgt-cache cachedir/] \\
                           -output-dir distinctname -launchlist outputfile.sh \\
                           [-threads 1] [-loocv] [-fastmode]
-                          
+
 
 EOF
 }
@@ -55,7 +55,7 @@ do
 	-threads)                threads="$2" ; shift ;;
 	-arch)                      arch="$2" ; shift ;;
 	-loocv)                    loocv=1 ;;
-        -notc3)                    notc3=1 ;; 
+        -notc3)                    notc3=1 ;;
 	-fastmode)              fastmode=1 ;;
 	-quicktest)            quicktest=1 ;;
 	-*)
@@ -102,7 +102,7 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
     [[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgtop "$tgtbase/${tgtarr["onepad"]}")          && unset tgtarr["onepad"]
     [[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgttc3raw "$tgtbase/${tgtarr["tc3raw"]}")         && unset tgtarr["tc3raw"]
     [[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) && tgtArgs+=(-tpn "$tgtbase/${tgtarr["pretransformation"]}") && unset tgtarr["pretransformation"]
-    
+
     tgtlabels=""
     for i in ${!tgtarr[@]} ; do
 	[[ $i == "n" ]] && continue
@@ -110,7 +110,7 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 	tgtArgs+=(-tgtlabels "$i:$tgtbase/${tgtarr["$i"]}")
     done
     [[ $tgtargc -gt $tgtitemn ]] && fatal "CSV items do not match header in $tgtdesc"
-    
+
     tail -n +2 "$srcdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read srcline ; do
 	unset srcarr ; declare -A srcarr
 	maperArgs=("${tgtArgs[@]}" $qt -atlasn "$atlasn" -output-dir "$outdir" -threads "$threads")
@@ -137,8 +137,8 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
 	if [[ ! $fastmode ]] ; then
 	    $pdir/maper -dry-run "${maperArgs[@]}"  >/dev/null
 	    fi
-	printf "%q " "$pdir"/maper ${maperArgs[@]} >>$launchlist
+	printf "%q " "$pdir"/maper ${maperArgs[@]} | sed 's/^[[:blank:]]*//; s/[[:blank:]]*$//' >>$launchlist
 	printf "\n" >>$launchlist
-    done 
-done 
+    done
+done
 
