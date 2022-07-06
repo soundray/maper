@@ -64,7 +64,7 @@ usage() {
     [-tgtlabels name1:labelset1.nii.gz]
 
     [-tgtlabels name2:labelset2.nii.gz]
-       TODO These will be used as reference for overlap assessment of transformed labels
+       These will be used as reference for overlap assessment of transformed labels
     
     [-tgtcache cache-dir/]
        Location for storing intermediate files for later re-use. Should normally be
