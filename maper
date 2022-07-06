@@ -355,20 +355,20 @@ regprop() {  ### Registration and label propagation
     cd ..
 }
 
-onepadgen() { ## Generate input derivatives
+onepadgen() {
 
     ### We're giving the user the option to specify op, mask, and mri.  
     ### Default for each is null
-    ### In the end, we need op set
+    ### In the end, we need op, mask, and mri set (non-null files in output dir)
 
-    ### 1 op null, mask null, mri null => error
-    ### 2 op null, mask null, mri set => error
-    ### 3 op null, mask set, mri null => error
-    ### 4 op null, mask set, mri set => generate onepad
-    ### 5 op set, mask null, mri null => generate mask and mri
-    ### 6 op set, mask null, mri set => generate mask and mri
-    ### 7 op set, mask set, mri null => do nothing
-    ### 8 op set, mask set, mri set => do nothing
+    ### 1 op set, mask set, mri set => do nothing
+    ### 2 op set, mask set, mri null => do nothing
+    ### 3 op set, mask null, mri set => generate mri and mask
+    ### 4 op set, mask null, mri null => generate mri and mask
+    ### 5 op null, mask set, mri set => generate onepad
+    ### 6 op null, mask set, mri null => error
+    ### 7 op null, mask null, mri set => error
+    ### 8 op null, mask null, mri null => error
 
     local mri=$(realpath "$1") ; shift
     local mask=$(realpath "$1") ; shift
@@ -377,34 +377,29 @@ onepadgen() { ## Generate input derivatives
     local tdl=$(mktemp -d onepadgen.XXXX)
     cd $tdl
 
-    if [[ ! -s "$mri" ]] ; then ## cases 1, 3, 5, 7 =>
-	if [[ -s "$onepad" ]] ; then ## cases 5, 7 =>
-	    mirtk calculate-element-wise "$onepad" -map 1 0 -o "$mri" -threads $threads ## generate mri as masked
-	else
-	    return 1 ## cases 1 and 3 fin
-	fi
-    fi
-
-    if [[ ! -s "$mask" ]] ; then ## cases 2, 5, 6 =>
-	if [[ -s "$mri" ]] ; then ## cases 5, 6 =>
-	    seg_maths "$mri" -bin -fill "$mask" ## Assumes MRI is masked, generate mask
-	else
-	    return 1 ## case 2 fin
-	fi
-    fi
-
-    if [[ -z $dryrun ]] ; then
-	if [[ ! -s $onepad ]] ; then # case 4
-	    cp "$mask" mask.nii.gz
-	    mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 3
-            mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads 1
-            mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads 1
-	fi
+    if [[ -s "$onepad" ]] ; then # 1 2 3 4
+        if [[ -s "$mask" ]] ; then # 1 2
+            return
+        else # 3 4
+	          mirtk calculate-element-wise "$onepad" -map 1 0 -o "$mri" -threads $threads ## generate mri as masked
+            seg_maths "$mri" -bin -fill "$mask" ## Generate mask
+        fi
+    else # 5 6 7 8
+        if [[ -s "$mask" ]] ; then # 5 6
+            if [[ -s "$mri" ]] ; then # 5
+	              cp "$mask" mask.nii.gz
+	              mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6
+                mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads 1
+                mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads 1
+            else
+                return 1
+            fi
+        else # 7 8
+            return 1
+        fi
     fi
 
     cd ..
-
-    return # cases 4, 5, 6, 7, 8
 }
 
 d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; } 
@@ -549,4 +544,3 @@ fi
 
 endsec=$(date +%s)
 msg "runtime: $[$endsec-$startsec] seconds"
-
