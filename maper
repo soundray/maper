@@ -65,7 +65,7 @@ usage() {
 
     [-tgtlabels name2:labelset2.nii.gz]
        These will be used as reference for overlap assessment of transformed labels
-    
+
     [-tgtcache cache-dir/]
        Location for storing intermediate files for later re-use. Should normally be
        different from -srccache
@@ -93,6 +93,9 @@ usage() {
     [-dry-run]
        Test if options correctly specified. Perform label fusion if -atlasn also
        specified.
+
+    [-verbose]
+       To show registration output on stdout
 
     [-debug]
        To save temporary working directory to -output-dir location
@@ -161,6 +164,7 @@ do
 	-notc3)          notc3=1 ;;
 	-dry-run)       dryrun=1 ;;
 	-quicktest)  quicktest=1 ;;
+	-verbose)      verbose=1 ;;
 	-debug)          debug=1 ;;
 	-*)
 	    fatal "Parameter error" ;;
@@ -194,6 +198,15 @@ baseoutdir=$outdir
 outdir="$outdir/$tgtid/$srcid-$tgtid"
 
 ### Functions
+
+progress() {
+    local inp=$*
+    if [[ -z $verbose ]] ; then
+        echo -n .
+    else
+        msg "$inp"
+    fi
+}
 
 tc3() { ### Tissue classification
     local input=$(realpath "$1") ; shift
@@ -269,87 +282,83 @@ regprop() {  ### Registration and label propagation
     ds=2.5 ; [[ $quicktest ]] && ds=10
 
     if [[ -z $dryrun ]] ; then
-	if [[ ! -e "$dof" ]] ; then
+	      if [[ ! -e "$dof" ]] ; then
 
-	    mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
-	    mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
+	          mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
+	          mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
 
-	    if [[ $notc3 == 1 ]] ; then lastrigidlevel=1 ; else lastrigidlevel=4 ; fi
+	          if [[ $notc3 == 1 ]] ; then lastrigidlevel=1 ; else lastrigidlevel=4 ; fi
 
-	    mirtk register \
-		        "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
-		        -model Rigid -levels 4 $lastrigidlevel -threads $threads \
-		      | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+	          mirtk register \
+		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
+		              -model Rigid -levels 4 $lastrigidlevel -threads $threads 
 
-	    mirtk register \
-		        "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0-1.dof.gz \
-		        -model Rigid -levels 4 $lastrigidlevel -threads $threads \
-		      | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+	          mirtk register \
+		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0-1.dof.gz \
+		              -model Rigid -levels 4 $lastrigidlevel -threads $threads
 
-	    topnmi=$(
-		      for i in neutral prealign coarse0-0 coarse0-1 ; do
-		          nmi=$(evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
-					                              -metric NMI -noid -csv -precision 7 \
-					                              -dofin $i.dof.gz | tail -n 1)
-		          echo $nmi, $i
-		      done | sort -rn | head -n 1 | cut -d , -f 2
-		        )
-	    cp $topnmi.dof.gz coarse0.dof.gz
+	          topnmi=$(
+		            for i in neutral prealign coarse0-0 coarse0-1 ; do
+		                nmi=$(evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
+					                                    -metric NMI -noid -csv -precision 7 \
+					                                    -dofin $i.dof.gz | tail -n 1)
+		                echo $nmi, $i
+		            done | sort -rn | head -n 1 | cut -d , -f 2
+		              )
+            msg "$topnmi is optimal"
+	          cp $topnmi.dof.gz coarse0.dof.gz
 
-	    if [[ -z $notc3 ]] ; then
-		      mirtk register \
-                "$tgt"/wmr.nii.gz "$tgt"/wml.nii.gz \
-                "$src"/wmr.nii.gz "$src"/wml.nii.gz \
-                -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
-                -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		            -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] WMR+WML $i" >>"$outdir/"reg.log 2>&1 ; done
+	          if [[ -z $notc3 ]] ; then
+		            mirtk register \
+                      "$tgt"/wmr.nii.gz "$tgt"/wml.nii.gz \
+                      "$src"/wmr.nii.gz "$src"/wml.nii.gz \
+                      -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
+                      -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		                  -ds $ds -threads $threads
+		            mirtk register \
+                      "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
+                      "$src"/csf.nii.gz "$src"/gm.nii.gz \
+                      -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
+                      -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		                  -ds $ds -threads $threads
+		            nextlevel=2
+	          else
+		            mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+                      -dofin coarse0.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine -levels 4 1 \
+		                  -threads $threads
+		            nextlevel=4
+	          fi
 
-		      mirtk register \
-                "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
-                "$src"/csf.nii.gz "$src"/gm.nii.gz \
-                -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
-                -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		            -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] CSF+GM $i" >>"$outdir/"reg.log 2>&1 ; done
+	          mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+	    	          -dofin coarse.dof.gz -dofout fine.dof.gz \
+	    	          -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
+	    	          -par "Strict step length range" "No" \
+	    	          -par "Maximum streak of rejected steps" 2 
+	          cp fine.dof.gz "$dof"
 
-		      nextlevel=2
-	    else
-		      mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-                -dofin coarse0.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine -levels 4 1 \
-		            -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
-		      nextlevel=4
-	    fi
-
-	    mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-	    	    -dofin coarse.dof.gz -dofout fine.dof.gz \
-	    	    -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
-	    	    -par "Strict step length range" "No" \
-	    	    -par "Maximum streak of rejected steps" 2 \
-	    	  | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir"/reg.log 2>&1 ; done
-	    cp fine.dof.gz "$dof"
-
-	    if [[ $debug ]] ; then
-		      transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
-		      echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
-		      for i in coarse0 coarse1 fine ; do
-		          transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
-		          echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
-		      done
-		      echo
-	    fi
-	fi
+	          if [[ $debug ]] ; then
+		            transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+		            echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
+		            for i in coarse0 coarse1 fine ; do
+		                transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+		                echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
+		            done
+		            echo
+	          fi
+	      fi
     fi
 
     # c=0
     for i in ${!sourceseg[@]} ; do
-	srcseg=${sourceseg["$i"]}
-	if [[ -s $srcseg ]] ; then
-	    autoseg="$autosegdir"/$i.nii.gz
-	    autosegtc="$autosegdir"/$i-tcsep.nii.gz 
-	    [[ -e "$autoseg" ]] && continue
-	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
-	    mirtk transform-image $srcseg "$autoseg" \
-		-dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
-	fi
+	      srcseg=${sourceseg["$i"]}
+	      if [[ -s $srcseg ]] ; then
+	          autoseg="$autosegdir"/$i.nii.gz
+	          autosegtc="$autosegdir"/$i-tcsep.nii.gz 
+	          [[ -e "$autoseg" ]] && continue
+	          if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
+	          mirtk transform-image $srcseg "$autoseg" \
+		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
+	      fi
     done
 
     cd ..
@@ -357,7 +366,7 @@ regprop() {  ### Registration and label propagation
 
 onepadgen() {
 
-    ### We're giving the user the option to specify op, mask, and mri.
+    ### The user has the option to specify op, mask, and mri
     ### Default for each is null
     ### In the end, we need op, mask, and mri set (non-null files in output dir)
 
@@ -379,7 +388,7 @@ onepadgen() {
 
     if [[ -s "$onepad" ]] ; then # 1 2 3 4
         if [[ -s "$mask" ]] ; then # 1 2
-            return
+            :
         else # 3 4
 	          mirtk calculate-element-wise "$onepad" -map 1 0 -o "$mri" -threads $threads ## generate mri as masked
             seg_maths "$mri" -bin -fill "$mask" ## Generate mask
@@ -446,7 +455,7 @@ cp "$srcmask" src/mask.nii.gz
 [[ -z $notc3 ]] && cp "$srctc3raw" src/tc3raw.nii.gz
 cp "$spn" src/pre.dof.gz
 onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
-    || usage "Source image not set. Either [-srcop file] or [-srcmri file] must be provided on commandline."
+    || fatal "Source specification incomplete. Either [-srcop file] or [-srcmri fileA -srcmask fileB] must be provided on commandline."
 
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
@@ -454,7 +463,7 @@ cp "$tgtmask" tgt/mask.nii.gz
 [[ -z $notc3 ]] && cp "$tgttc3raw" tgt/tc3raw.nii.gz
 cp "$tpn" tgt/pre.dof.gz
 onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
-    || usage "Target image not set. Either [-tgtop file] or [-tgtmri file] must be provided on commandline."
+    || fatal "Target specification incomplete. Either [-tgtop file] or [-tgtmri fileA -tgtmask fileB] must be provided on commandline."
 
 ### Main routine
 
@@ -482,7 +491,8 @@ fi
 
 if [[ $tc3only == 0 ]] ; then
     msg "=== Registration and propagation ==="
-    regprop "$td"/src "$td"/tgt "$td"/regout
+    regprop "$td"/src "$td"/tgt "$td"/regout | while read i ; do progress "$i" ; done
+    msg "."
 fi
 
 ### Stage out results
