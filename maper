@@ -4,7 +4,7 @@ ppath=$(realpath "$BASH_SOURCE")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
-set -e 
+set -e
 
 . "$pdir"/generic-functions
 
@@ -13,11 +13,11 @@ startsec=$(date +%s)
 usage() {
     cat <<EOF
 
-    MAPER - Calculate robust registration between a source-target pair, transform label images to target, 
-            fuse result from multiple transformations to same target if available. 
-    
+    MAPER - Calculate robust registration between a source-target pair, transform label images to target,
+            fuse result from multiple transformations to same target if available.
+
     Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -output-dir /path/to/write/output
-    
+
     <source_spec> consists of either
 
        [-srcop src-onepad.nii.gz]
@@ -35,17 +35,17 @@ usage() {
     [-srctc3raw src-three-tissue-class-probmap.nii.gz]
        If not provided, this will be calculated.
 
-    [-spn pretransformation.dof.gz] 
+    [-spn pretransformation.dof.gz]
        This will be combined with the inverse of -tpn to achieve prealignment.
 
     [-srclabels name1:labelset1.nii.gz]
 
-    [-srclabels name2:labelset2.nii.gz] 
+    [-srclabels name2:labelset2.nii.gz]
        Up to four allowed -- will be transformed according to registration result.
-     
+
     [-srccache cache-dir/]
        Location for storing intermediate files for later re-use
- 
+
     <target_spec>
 
         [-tgtop tgt-onepad.nii.gz]
@@ -58,28 +58,28 @@ usage() {
 
         treated analogously to corresponding <source_spec> items.
 
-    [-tpn pretransformation.dof.gz] 
+    [-tpn pretransformation.dof.gz]
        Obligatory if -spn specified. Either is ignored unless both are specified.
 
     [-tgtlabels name1:labelset1.nii.gz]
 
-    [-tgtlabels name2:labelset2.nii.gz] 
+    [-tgtlabels name2:labelset2.nii.gz]
        TODO These will be used as reference for overlap assessment of transformed labels
     
     [-tgtcache cache-dir/]
-       Location for storing intermediate files for later re-use. Should normally be 
-       different from -srccache 
+       Location for storing intermediate files for later re-use. Should normally be
+       different from -srccache
 
     [-atlasn NN]
-          If NN source transformations are found for TargetID in -output-dir, 
+          If NN source transformations are found for TargetID in -output-dir,
           label fusion will be performed.
 
     [-tc3out]
-       Raw three-class tissue probability map for target image will be saved 
+       Raw three-class tissue probability map for target image will be saved
        (compressed file size is ca. 5 × input image)
 
     [-tc3crisp]
-       Discrete three-class tissue map for target image will be saved 
+       Discrete three-class tissue map for target image will be saved
 
     [-tc3only]
        Exit after tc3 generation
@@ -87,11 +87,11 @@ usage() {
     [-notc3]
        Skip tissue mapping and tissue-class based prealignment
 
-    [-quicktest] 
+    [-quicktest]
        For accelerated run (very coarse result)
 
-    [-dry-run] 
-       Test if options correctly specified. Perform label fusion if -atlasn also 
+    [-dry-run]
+       Test if options correctly specified. Perform label fusion if -atlasn also
        specified.
 
     [-debug]
@@ -175,7 +175,7 @@ declare -A sourceseg
 for i in $isrcsegs ; do
     set -- $(echo $i | tr ':' ' ' )
     segname=$1 ; shift
-    ii=$(realpath $1) 
+    ii=$(realpath $1)
     [[ -e $ii ]] || msg "Source seg $i does not exist"
     sourceseg["$segname"]=$ii
 done
@@ -357,7 +357,7 @@ regprop() {  ### Registration and label propagation
 
 onepadgen() {
 
-    ### We're giving the user the option to specify op, mask, and mri.  
+    ### We're giving the user the option to specify op, mask, and mri.
     ### Default for each is null
     ### In the end, we need op, mask, and mri set (non-null files in output dir)
 
@@ -402,7 +402,7 @@ onepadgen() {
     cd ..
 }
 
-d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; } 
+d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; }
 
 ###
 msg "=== Preparation: staging files and generating onepad images ==="
@@ -519,13 +519,13 @@ if [[ $atlasn -ge 3 ]] ; then
 
 		if [[ ! -s $thisseg.nii.gz ]] ; then
 		    fuse "$thisseg".nii.gz $# $*
-		
+
 		    # Generate tissue-class separated output
 		    if [[ -z $notc3 ]] ; then
 			read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
 			sep=$[max + 1]
 			seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-			
+
 			# Compare fused with reference
 			ref=${targetseg["$i"]}
 			if [[ -s $ref ]] ; then
