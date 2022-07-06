@@ -197,6 +197,8 @@ outdir="$outdir/$tgtid/$srcid-$tgtid"
 
 tc3() { ### Tissue classification
     local input=$(realpath "$1") ; shift
+    # Expected: mri.nii.gz mask.nii.gz pre.dof.gz
+    # Optional: tc3raw.nii.gz
     local outdir=$(realpath "$1") ; shift
 
     local bn=$(basename "$input")
