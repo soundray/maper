@@ -264,6 +264,8 @@ regprop() {  ### Registration and label propagation
     local tdl=$(mktemp -d regprop.XXXXX)
     cd "$tdl"
 
+    cp "$pdir"/neutral.dof.gz .
+
     ds=2.5 ; [[ $quicktest ]] && ds=10
 
     if [[ -z $dryrun ]] ; then
@@ -275,55 +277,73 @@ regprop() {  ### Registration and label propagation
 	    if [[ $notc3 == 1 ]] ; then lastrigidlevel=1 ; else lastrigidlevel=4 ; fi
 
 	    mirtk register \
-		"$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0.dof.gz \
-		-model Rigid -levels 4 $lastrigidlevel -threads $threads \
-		| while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+		        "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
+		        -model Rigid -levels 4 $lastrigidlevel -threads $threads \
+		      | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+
+	    mirtk register \
+		        "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0-1.dof.gz \
+		        -model Rigid -levels 4 $lastrigidlevel -threads $threads \
+		      | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+
+	    topnmi=$(
+		      for i in neutral prealign coarse0-0 coarse0-1 ; do
+		          nmi=$(evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
+					                              -metric NMI -noid -csv -precision 7 \
+					                              -dofin $i.dof.gz | tail -n 1)
+		          echo $nmi, $i
+		      done | sort -rn | head -n 1 | cut -d , -f 2
+		        )
+	    cp $topnmi.dof.gz coarse0.dof.gz
 
 	    if [[ -z $notc3 ]] ; then
-		mirtk register \
-                    "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz "$tgt"/wm.nii.gz \
-                    "$src"/csf.nii.gz "$src"/gm.nii.gz "$src"/wm.nii.gz \
-                    -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 2 \
-                    -par "Energy function" "SSD(I1, I4 o T) + SSD(I2, I5 o T) + SSD(I3, I6 o T) + 1e-3 BE(T)" \
-		    -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
-		# # Alternative using NiftyReg with KLD dissimilarity measure
-		# reg_f3d -ref "$tgt"/tc3.nii.gz -flo "$src"/tc3.nii.gz -omp $threads -aff prealign.txt\
-		# 	    --kld -ln 2 -sx -10 -cpp cpp-int.nii.gz -res mrtr-int.nii.gz \
-		# 	| while read i ; do msg "[$srcid-$tgtid] $i" ; done
-		# convert-dof cpp-int.nii.gz coarse.dof.gz -input-format f3d -output-format mirtk_bspline_ffd
-		nextlevel=2
-	    else 
-		mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-                    -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine -levels 4 1 \
-		    -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
-		nextlevel=4
+		      mirtk register \
+                "$tgt"/wmr.nii.gz "$tgt"/wml.nii.gz \
+                "$src"/wmr.nii.gz "$src"/wml.nii.gz \
+                -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
+                -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		            -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] WMR+WML $i" >>"$outdir/"reg.log 2>&1 ; done
+
+		      mirtk register \
+                "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
+                "$src"/csf.nii.gz "$src"/gm.nii.gz \
+                -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
+                -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		            -ds $ds -threads $threads | while read i ; do echo "[$srcid-$tgtid] CSF+GM $i" >>"$outdir/"reg.log 2>&1 ; done
+
+		      nextlevel=2
+	    else
+		      mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+                -dofin coarse0.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine -levels 4 1 \
+		            -threads $threads | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir/"reg.log 2>&1 ; done
+		      nextlevel=4
 	    fi
 
 	    mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-	    	  -dofin coarse1.dof.gz -dofout fine.dof.gz \
-	    	  -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
-	    	  -par "Strict step length range" "No" \
-	    	  -par "Maximum streak of rejected steps" 2 \
-	    	| while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir"/reg.log 2>&1 ; done
+	    	    -dofin coarse.dof.gz -dofout fine.dof.gz \
+	    	    -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
+	    	    -par "Strict step length range" "No" \
+	    	    -par "Maximum streak of rejected steps" 2 \
+	    	  | while read i ; do echo "[$srcid-$tgtid] $i" >>"$outdir"/reg.log 2>&1 ; done
 	    cp fine.dof.gz "$dof"
 
 	    if [[ $debug ]] ; then
-		transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
-		echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
-		for i in coarse0 coarse1 fine ; do
-		    transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
-		    echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t " 
-		done
-		echo
-	    fi	
+		      transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+		      echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
+		      for i in coarse0 coarse1 fine ; do
+		          transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+		          echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,12)"\t "
+		      done
+		      echo
+	    fi
 	fi
     fi
-	
+
     # c=0
     for i in ${!sourceseg[@]} ; do
 	srcseg=${sourceseg["$i"]}
-	if [[ -s $srcseg ]] ; then 
-	    autoseg="$autosegdir"/$i.nii.gz 
+	if [[ -s $srcseg ]] ; then
+	    autoseg="$autosegdir"/$i.nii.gz
 	    autosegtc="$autosegdir"/$i-tcsep.nii.gz 
 	    [[ -e "$autoseg" ]] && continue
 	    if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
