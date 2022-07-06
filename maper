@@ -206,24 +206,28 @@ tc3() { ### Tissue classification
     cd $tdl
 
     if [[ -n $dryrun ]] ; then
-	( cd $outdir 
-	    for i in csf gm wm crisp-csf crisp-gm crisp-wm crisp tc3 ; do
-		touch $i.nii.gz
-	    done
-	)
-	cd ..
-	return
+	      ( cd $outdir
+	        for i in csf gm wm wmr wml crisp-csf crisp-gm crisp-wm crisp tc3 ; do
+		          touch $i.nii.gz
+	        done
+	      )
+	      cd ..
+	      return
     fi
 
-    seg_maths "$input"/mask.nii.gz mask
+    seg_maths "$input"/mask.nii.gz mask.nii.gz
 
     if [[ -s "$input"/tc3raw.nii.gz ]] ; then
-	cp "$input"/tc3raw.nii.gz tc3raw.nii.gz
+	      cp "$input"/tc3raw.nii.gz tc3raw.nii.gz
     else
-	seg_maths "$input"/mri.nii.gz brain
-	seg_EM -in brain -out tc3raw.nii.gz -bc_out bcout -nopriors 3 -mask mask
-	cp tc3raw.nii.gz "$outdir"
+	      seg_maths "$input"/mri.nii.gz brain
+	      seg_EM -in brain -out tc3raw.nii.gz -bc_out bcout -nopriors 3 -mask mask.nii.gz
+	      cp tc3raw.nii.gz "$outdir"
     fi
+
+    # Prepare left and right masks
+    transform-image $pdir/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
+    seg_maths rightmask-custom.nii.gz -sub 1 -abs leftmask-custom.nii.gz
 
     # Generate crisp labels
     seg_maths tc3raw -tpmax -add mask crisp
@@ -233,12 +237,18 @@ tc3() { ### Tissue classification
     seg_maths crisp "$outdir"/crisp.nii.gz
 
     # Get individual tc probability maps, subsample
-    seg_maths tc3raw -tp 0 -mul 254 csf
-    seg_maths mask -dil 3 -add csf "$outdir"/csf.nii.gz
-    seg_maths tc3raw.nii.gz -tp 1 -mul 255 "$outdir"/gm.nii.gz
-    seg_maths tc3raw.nii.gz -tp 2 -mul 255 "$outdir"/wm.nii.gz
-    seg_maths "$outdir"/csf.nii.gz -merge 2 4 "$outdir"/gm.nii.gz "$outdir"/wm.nii.gz -div 255 "$outdir"/tc3.nii.gz
-
+    seg_maths tc3raw -tp 0 -mul 254 csf-pre
+    seg_maths mask -dil 6 -add csf-pre csf.nii.gz
+    seg_maths tc3raw.nii.gz -tp 1 -mul 255 gm.nii.gz
+    seg_maths tc3raw.nii.gz -tp 2 -mul 255 wm.nii.gz
+    seg_maths wm.nii.gz -mul rightmask-custom.nii.gz wmr.nii.gz
+    seg_maths wm.nii.gz -mul leftmask-custom.nii.gz wml.nii.gz
+    seg_maths csf.nii.gz -merge 2 4 gm.nii.gz wm.nii.gz -div 255 "$outdir"/tc3.nii.gz
+    cp csf.nii.gz "$outdir"/csf.nii.gz
+    cp gm.nii.gz "$outdir"/gm.nii.gz
+    cp wm.nii.gz "$outdir"/wm.nii.gz
+    cp wmr.nii.gz "$outdir"/wmr.nii.gz
+    cp wml.nii.gz "$outdir"/wml.nii.gz
     cd ..
 }
 
