@@ -376,7 +376,7 @@ onepadgen() {
     ### 4 op set, mask null, mri null => generate mri and mask
     ### 5 op null, mask set, mri set => generate onepad
     ### 6 op null, mask set, mri null => error
-    ### 7 op null, mask null, mri set => error
+    ### 7 op null, mask null, mri set => generate mask (assume mri is masked)
     ### 8 op null, mask null, mri null => error
 
     local mri=$(realpath "$1") ; shift
@@ -400,11 +400,17 @@ onepadgen() {
 	              mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6
                 mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads 1
                 mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads 1
-            else
+            else # 6
                 return 1
             fi
         else # 7 8
-            return 1
+            if [[ -s "$mri" ]] ; then # 7
+                seg_maths "$mri" -bin -fill "$mask" ## Generate mask
+                mirtk dilate-image "$mask" mask-dil.nii -iterations 6
+                mirtk calculate-element-wise mask-dil.nii -sub "$mask" -add "$mri" -o "$onepad" float -threads 1
+            else # 8
+                return 1
+            fi
         fi
     fi
 
