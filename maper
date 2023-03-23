@@ -540,7 +540,7 @@ if [[ $atlasn -ge 3 ]] ; then
 			                  read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
 			                  sep=$[max + 1]
 			                  seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-                        cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
+                        cp tgt/crisp.nii.gz "$baseoutdir"/"$thisseg-tc3crisp.nii.gz"
 
 			                  # Compare fused with reference
 			                  ref=${targetseg["$i"]}
