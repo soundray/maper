@@ -239,7 +239,7 @@ tc3() { ### Tissue classification
     fi
 
     # Prepare left and right masks
-    transform-image $pdir/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
+    mirtk transform-image $pdir/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
     seg_maths rightmask-custom.nii.gz -sub 1 -abs leftmask-custom.nii.gz
 
     # Generate crisp labels
@@ -299,7 +299,7 @@ regprop() {  ### Registration and label propagation
 
 	          topnmi=$(
 		            for i in neutral prealign coarse0-0 coarse0-1 ; do
-		                nmi=$(evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
+		                nmi=$(mirtk evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
 					                                    -metric NMI -noid -csv -precision 7 \
 					                                    -dofin $i.dof.gz | tail -n 1)
 		                echo $nmi, $i
@@ -337,11 +337,11 @@ regprop() {  ### Registration and label propagation
 	          cp fine.dof.gz "$dof"
 
 	          if [[ $debug ]] ; then
-		            transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
-		            echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
+		            mirtk transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+		            echo -e $(mirtk evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
 		            for i in coarse0 coarse1 fine ; do
-		                transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
-		                echo -e $(evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
+		                mirtk transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+		                echo -e $(mirtk evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
 		            done
 		            echo
 	          fi
