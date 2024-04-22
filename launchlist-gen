@@ -3,6 +3,7 @@
 ppath=$(realpath "$BASH_SOURCE")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
+cmd="$0 $@"
 
 set -e
 
@@ -70,6 +71,8 @@ done
 [[ -e $tgtbase ]] || tgtbase=$(dirname "$tgtdesc")
 [[ -s $srcdesc ]] || fatal "Source description $srcdesc does not exist"
 [[ -s $tgtdesc ]] || fatal "Target description $tgtdesc does not exist"
+
+echo $cmd >>$launchlist-genlog.txt
 
 qt= ; [[ $quicktest ]] && qt="-quicktest"
 
