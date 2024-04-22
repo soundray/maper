@@ -84,8 +84,18 @@ usage() {
     [-tc3only]
        Exit after tc3 generation
 
-    [-notc3]
+    [-notc]
        Skip tissue mapping and tissue-class based prealignment
+
+    [-notc3]
+       (Deprecated) Skip tissue mapping and tissue-class based prealignment
+
+    [-tc3]
+       Perform three-class (CSF, GM, WM) tissue mapping and prealign on this basis
+
+    [-tc2]
+       Perform three-class (CSF, GM, WM) tissue mapping and prealign on the basis
+       of two tissue classes (CSF and merged GMWM)
 
     [-quicktest]
        For accelerated run (very coarse result)
@@ -129,9 +139,12 @@ tpn=neutral.dof.gz
 tgtcache=
 outdir=$PWD/maper-$$
 atlasn=
+tc2=0
+tc3=0
 tc3out=
 tc3crisp=
 tc3only=0
+notc=
 notc3=
 debug=
 threads=1
@@ -158,9 +171,12 @@ do
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
 	-threads)      threads="$2" ; shift ;;
+  -tc2               tc2=1 ;;
+  -tc3               tc3=1 ;;
 	-tc3out)        tc3out=1 ;;
 	-tc3crisp)    tc3crisp=1 ;;
 	-tc3only)      tc3only=1 ;;
+	-notc)            notc=1 ;;
 	-notc3)          notc3=1 ;;
 	-dry-run)       dryrun=1 ;;
 	-quicktest)  quicktest=1 ;;
@@ -173,7 +189,13 @@ do
     shift
 done
 
-[[ $notc3 == 1 && $[ $tc3out + $tc3crisp + $tc3only ] > 0 ]] && fatal "Parameter error: -notc3 is incompatible with -tc3 options"
+[[ $notc3 == 1 ]] && notc=1
+
+[[ $notc == 1 && $[ $tc3out + $tc3crisp + $tc3only ] > 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
+
+[[ $[ $tc2 + $tc3 ] > 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
+
+[[ $tc3 == 0 ]] && $tc2=1
 
 declare -A sourceseg
 for i in $isrcsegs ; do
@@ -220,7 +242,7 @@ tc3() { ### Tissue classification
 
     if [[ -n $dryrun ]] ; then
 	      ( cd $outdir
-	        for i in csf gm wm wmr wml crisp-csf crisp-gm crisp-wm crisp tc3 ; do
+	        for i in csf gm wm gmwm wmr wml gmwmr gmwml crisp-csf crisp-gm crisp-wm crisp tc3 ; do
 		          touch $i.nii.gz
 	        done
 	      )
@@ -254,14 +276,21 @@ tc3() { ### Tissue classification
     seg_maths mask -dil 6 -add csf-pre csf.nii.gz
     seg_maths tc3raw.nii.gz -tp 1 -mul 255 gm.nii.gz
     seg_maths tc3raw.nii.gz -tp 2 -mul 255 wm.nii.gz
+    seg_maths gm.nii.gz -sub wm.nii.gz -abs -add gm.nii.gz -add wm.nii.gz -div 2 gmwm.nii.gz
     seg_maths wm.nii.gz -mul rightmask-custom.nii.gz wmr.nii.gz
     seg_maths wm.nii.gz -mul leftmask-custom.nii.gz wml.nii.gz
+    seg_maths gmwm.nii.gz -mul rightmask-custom.nii.gz gmwmr.nii.gz
+    seg_maths gmwm.nii.gz -mul leftmask-custom.nii.gz gmwml.nii.gz
     seg_maths csf.nii.gz -merge 2 4 gm.nii.gz wm.nii.gz -div 255 "$outdir"/tc3.nii.gz
+    seg_maths csf.nii.gz -merge 1 4 gmwm.nii.gz -div 255 "$outdir"/tc2.nii.gz
     cp csf.nii.gz "$outdir"/csf.nii.gz
     cp gm.nii.gz "$outdir"/gm.nii.gz
     cp wm.nii.gz "$outdir"/wm.nii.gz
+    cp gmwm.nii.gz "$outdir"/gmwm.nii.gz
     cp wmr.nii.gz "$outdir"/wmr.nii.gz
     cp wml.nii.gz "$outdir"/wml.nii.gz
+    cp gmwmr.nii.gz "$outdir"/gmwmr.nii.gz
+    cp gmwml.nii.gz "$outdir"/gmwml.nii.gz
     cd ..
 }
 
@@ -287,7 +316,7 @@ regprop() {  ### Registration and label propagation
 	          mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
 	          mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
 
-	          if [[ $notc3 == 1 ]] ; then lastrigidlevel=1 ; else lastrigidlevel=4 ; fi
+	          if [[ $notc == 1 ]] ; then lastrigidlevel=1 ; else lastrigidlevel=4 ; fi
 
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
@@ -308,19 +337,34 @@ regprop() {  ### Registration and label propagation
             msg "$topnmi is optimal"
 	          cp $topnmi.dof.gz coarse0.dof.gz
 
-	          if [[ -z $notc3 ]] ; then
-		            mirtk register \
-                      "$tgt"/wmr.nii.gz "$tgt"/wml.nii.gz \
-                      "$src"/wmr.nii.gz "$src"/wml.nii.gz \
-                      -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
-                      -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                  -ds $ds -threads $threads
-		            mirtk register \
-                      "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
-                      "$src"/csf.nii.gz "$src"/gm.nii.gz \
-                      -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
-                      -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                  -ds $ds -threads $threads
+	          if [[ -z $notc ]] ; then
+                if [[ $tc3 == 1 ]] ; then
+		                mirtk register \
+                          "$tgt"/wmr.nii.gz "$tgt"/wml.nii.gz \
+                          "$src"/wmr.nii.gz "$src"/wml.nii.gz \
+                          -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
+                          -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		                      -ds $ds -threads $threads
+		                mirtk register \
+                          "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
+                          "$src"/csf.nii.gz "$src"/gm.nii.gz \
+                          -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
+                          -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		                      -ds $ds -threads $threads
+                fi
+                if [[ $tc2 == 1 ]] ; then
+                    mirtk register \
+                          "$tgt"/gmwmr.nii.gz "$tgt"/gmwmr.nii.gz \
+                          "$src"/gmwmr.nii.gz "$src"/gmwmr.nii.gz \
+                          -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
+                          -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
+		                      -ds $ds -threads $threads
+		                mirtk register \
+                          "$tgt"/csf.nii.gz "$src"/csf.nii.gz \
+                          -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
+                          -par "Energy function" "SSD(I1, I2 o T) + 1e-3 BE(T)" \
+		                      -ds $ds -threads $threads
+                fi
 		            nextlevel=2
 	          else
 		            mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
@@ -458,7 +502,7 @@ set -- "$outdir"/seg/*
 cp "$srcop" src/onepad.nii.gz
 cp "$srcmri" src/mri.nii.gz
 cp "$srcmask" src/mask.nii.gz
-[[ -z $notc3 ]] && cp "$srctc3raw" src/tc3raw.nii.gz
+[[ -z $notc ]] && cp "$srctc3raw" src/tc3raw.nii.gz
 cp "$spn" src/pre.dof.gz
 onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
     || fatal "Source specification incomplete. Either [-srcop file] or [-srcmri fileA -srcmask fileB] must be provided on commandline."
@@ -466,14 +510,14 @@ onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
 cp "$tgtmask" tgt/mask.nii.gz
-[[ -z $notc3 ]] && cp "$tgttc3raw" tgt/tc3raw.nii.gz
+[[ -z $notc ]] && cp "$tgttc3raw" tgt/tc3raw.nii.gz
 cp "$tpn" tgt/pre.dof.gz
 onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
     || fatal "Target specification incomplete. Either [-tgtop file] or [-tgtmri fileA -tgtmask fileB] must be provided on commandline."
 
 ### Main routine
 
-if [[ -z $notc3 ]] ; then
+if [[ -z $notc ]] ; then
     set --
     [[ -n $srccache_ ]] && set -- $srccache_/*
     if [[ $# -gt 8 ]] ; then
@@ -524,37 +568,37 @@ fuse() {
 
 if [[ $atlasn -ge 3 ]] ; then
     for i in ${!sourceseg[@]} ; do
-	      set -- "$baseoutdir"/$tgtid/*-$tgtid/seg/"$i".nii.gz
-	      if mkdir "$baseoutdir"/fusion-semaphore-$i-$tgtid 2>/dev/null ; then
-	          nready=$#
-	          if [[ $nready -ge $atlasn ]] ; then
+	set -- "$baseoutdir"/$tgtid/*-$tgtid/seg/"$i".nii.gz
+	if mkdir "$baseoutdir"/fusion-semaphore-$i-$tgtid 2>/dev/null ; then
+	    nready=$#
+	    if [[ $nready -ge $atlasn ]] ; then
 
-		            # Fuse output
-		            thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
+		# Fuse output
+		thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
 
-		            if [[ ! -s $thisseg.nii.gz ]] ; then
-		                fuse "$thisseg".nii.gz $# $*
+		if [[ ! -s $thisseg.nii.gz ]] ; then
+		    fuse "$thisseg".nii.gz $# $*
 
-		                # Generate tissue-class separated output
-		                if [[ -z $notc3 ]] ; then
-			                  read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
-			                  sep=$[max + 1]
-			                  seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-                        cp tgt/crisp.nii.gz "$baseoutdir"/"$thisseg-tc3crisp.nii.gz"
+		    # Generate tissue-class separated output
+		    if [[ -z $notc ]] ; then
+			read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
+			sep=$[max + 1]
+			seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
+      cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
 
-			                  # Compare fused with reference
-			                  ref=${targetseg["$i"]}
-			                  if [[ -s $ref ]] ; then
-			                      seg_stats $ref -d "$thisseg".nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv
-			                      ( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do
-				                          echo $region, $(d2j $dsc) ; done ) >"$thisseg"-indivjc.csv
-			                      echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$thisseg"-meanjc.csv
-			                  fi
-		                fi
-		            fi
-	          fi
-	          rm -r "$baseoutdir"/fusion-semaphore-$i-$tgtid
-	      fi
+			# Compare fused with reference
+			ref=${targetseg["$i"]}
+			if [[ -s $ref ]] ; then
+			    seg_stats $ref -d "$thisseg".nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv
+			    ( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do
+				    echo $region, $(d2j $dsc) ; done ) >"$thisseg"-indivjc.csv
+			    echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$thisseg"-meanjc.csv
+			fi
+		    fi
+		fi
+	    fi
+	    rm -r "$baseoutdir"/fusion-semaphore-$i-$tgtid
+	fi
     done
 fi
 
