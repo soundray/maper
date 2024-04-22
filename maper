@@ -171,8 +171,8 @@ do
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
 	-threads)      threads="$2" ; shift ;;
-  -tc2               tc2=1 ;;
-  -tc3               tc3=1 ;;
+  -tc2)              tc2=1 ;;
+  -tc3)              tc3=1 ;;
 	-tc3out)        tc3out=1 ;;
 	-tc3crisp)    tc3crisp=1 ;;
 	-tc3only)      tc3only=1 ;;
@@ -195,7 +195,7 @@ done
 
 [[ $[ $tc2 + $tc3 ] > 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
 
-[[ $tc3 == 0 ]] && $tc2=1
+[[ $tc3 == 0 ]] && tc2=1
 
 declare -A sourceseg
 for i in $isrcsegs ; do
