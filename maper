@@ -354,8 +354,8 @@ regprop() {  ### Registration and label propagation
                 fi
                 if [[ $tc2 == 1 ]] ; then
                     mirtk register \
-                          "$tgt"/gmwmr.nii.gz "$tgt"/gmwmr.nii.gz \
-                          "$src"/gmwmr.nii.gz "$src"/gmwmr.nii.gz \
+                          "$tgt"/gmwmr.nii.gz "$tgt"/gmwml.nii.gz \
+                          "$src"/gmwmr.nii.gz "$src"/gmwml.nii.gz \
                           -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
                           -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
 		                      -ds $ds -threads $threads
