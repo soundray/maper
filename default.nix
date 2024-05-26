@@ -20,7 +20,7 @@ let
     "${pkgs.bc}/bin"
     "${pkgs.utillinux}/bin"
   ];
-in pkgs.runCommandNoCC "maper-1.2.3" {
+in pkgs.runCommandNoCC "maper" {
   meta = {
     license = lib.licenses.gpl2;
     description = "Multi-atlas propagation with enhanced registration";
