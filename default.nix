@@ -20,7 +20,7 @@ let
     "${pkgs.bc}/bin"
     "${pkgs.utillinux}/bin"
   ];
-in pkgs.runCommandNoCC "maper-1.2.3" {
+in pkgs.runCommandNoCC "maper" {
   meta = {
     license = lib.licenses.gpl2;
     description = "Multi-atlas propagation with enhanced registration";
@@ -33,6 +33,6 @@ in pkgs.runCommandNoCC "maper-1.2.3" {
   echo "export PATH='${binpath}'" >>$out/lib/maper/generic-functions
   sed -i "s^##nix-path-goes-here##^source $out/lib/maper/generic-functions^" $out/lib/maper/run-maper-example-generate.sh
   for f in $out/lib/maper/* ; do patchShebangs $f ; done
-  cp ${src}/neutral.dof.gz $out/lib/maper
+  cp ${src}/neutral.dof.gz ${src}/rightmask.nii.gz $out/lib/maper
   ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example-generate.sh,hammers_mith-ancillaries.sh} $out/bin
 ''
