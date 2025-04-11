@@ -92,7 +92,8 @@ tgtitemn=$#
 enns=$(seq $tgtitemn 7 | tr '[0-9]' 'n')
 read ett tva tre fyra fem sex sju atta <<<$( echo $* $enns)
 
-atlasn=$(tail -n +2  "$srcdesc" | wc -l)
+atlasn=$(cat "$srcdesc" | grep -v '^#' | tail -n +2 | grep , | wc -l)
+[[ $loocv ]] && (( atlasn -= 1 ))
 tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read tgtline ; do
     tgtargc=0
     unset tgtarr ; declare -A tgtarr
