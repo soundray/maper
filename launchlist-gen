@@ -115,12 +115,12 @@ tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\
     done
     [[ $tgtargc -gt $tgtitemn ]] && fatal "CSV items do not match header in $tgtdesc"
 
-    tail -n +2 "$srcdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read srcline ; do
+    cat "$srcdesc" | grep -v '^#' | grep -v -e '^[[:space:]]*$' | tail -n +2 | while IFS='\n' read srcline ; do
 	unset srcarr ; declare -A srcarr
 	maperArgs=("${tgtArgs[@]}" $qt -atlasn "$atlasn" -output-dir "$outdir" -threads "$threads")
 	srcargc=0
 	read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
-	[[ $loocv ]] && [[ $tgtid == ${srcarr["id"]} ]] && (( atlasn -= 1 )) && continue
+	[[ $loocv ]] && [[ $tgtid == ${srcarr["id"]} ]] && continue
 	[[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) && maperArgs+=(-srcid "${srcarr["id"]}")                              && unset srcarr["id"]
 	[[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) && maperArgs+=(-srcmri "$srcbase/${srcarr["mri"]}")            && unset srcarr["mri"]
 	[[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && maperArgs+=(-srcmask "$srcbase/${srcarr["brainmask"]}")     && unset srcarr["brainmask"]
