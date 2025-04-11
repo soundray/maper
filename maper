@@ -189,6 +189,8 @@ do
     shift
 done
 
+export OMP_NUM_THREADS=$threads
+
 [[ $notc3 == 1 ]] && notc=1
 
 [[ $notc == 1 && $[ $tc3out + $tc3crisp + $tc3only ] > 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
