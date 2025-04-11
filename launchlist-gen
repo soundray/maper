@@ -83,7 +83,7 @@ procs=$(nproc --all)
 cat /dev/null >$launchlist || fatal "Could not write to $launchlist"
 
 cseg=0
-set -- $(head -n 1 "$srcdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
+set -- $(cat "$srcdesc" | grep -v '^#' | head -n 1 | tr ',' ' ' | tr '[A-Z]' '[a-z]')
 srcitemn=$#
 enns=$(seq $srcitemn 7 | tr '[0-9]' 'n')
 read eins zwei drei vier funf sechs sieben acht <<<$( echo $* $enns )
