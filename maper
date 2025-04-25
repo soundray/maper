@@ -322,7 +322,7 @@ regprop() {  ### Registration and label propagation
 
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
-		              -model Rigid -levels 4 $lastrigidlevel -threads $threads 
+		              -model Rigid -levels 4 $lastrigidlevel -threads $threads
 
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0-1.dof.gz \
@@ -379,7 +379,7 @@ regprop() {  ### Registration and label propagation
 	    	          -dofin coarse.dof.gz -dofout fine.dof.gz \
 	    	          -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
 	    	          -par "Strict step length range" "No" \
-	    	          -par "Maximum streak of rejected steps" 2 
+	    	          -par "Maximum streak of rejected steps" 2
 	          cp fine.dof.gz "$dof"
 
 	          if [[ $debug ]] ; then
@@ -399,7 +399,7 @@ regprop() {  ### Registration and label propagation
 	      srcseg=${sourceseg["$i"]}
 	      if [[ -s $srcseg ]] ; then
 	          autoseg="$autosegdir"/$i.nii.gz
-	          autosegtc="$autosegdir"/$i-tcsep.nii.gz 
+	          autosegtc="$autosegdir"/$i-tcsep.nii.gz
 	          [[ -e "$autoseg" ]] && continue
 	          if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
 	          mirtk transform-image $srcseg "$autoseg" \
@@ -411,54 +411,70 @@ regprop() {  ### Registration and label propagation
 }
 
 onepadgen() {
-
-    ### The user has the option to specify op, mask, and mri
-    ### Default for each is null
-    ### In the end, we need op, mask, and mri set (non-null files in output dir)
-
-    ### 1 op set, mask set, mri set => do nothing
-    ### 2 op set, mask set, mri null => do nothing
-    ### 3 op set, mask null, mri set => generate mri and mask
-    ### 4 op set, mask null, mri null => generate mri and mask
-    ### 5 op null, mask set, mri set => generate onepad
-    ### 6 op null, mask set, mri null => error
-    ### 7 op null, mask null, mri set => generate mask (assume mri is masked)
-    ### 8 op null, mask null, mri null => error
-
     local mri=$(realpath "$1") ; shift
     local mask=$(realpath "$1") ; shift
     local onepad=$(realpath "$1") ; shift
 
-    local tdl=$(mktemp -d onepadgen.XXXX)
-    cd $tdl
+    local tmpdir=$(mktemp -d onepadgen.XXXX)
+    cd "$tmpdir" || exit 1
 
-    if [[ -s "$onepad" ]] ; then # 1 2 3 4
-        if [[ -s "$mask" ]] ; then # 1 2
-            :
-        else # 3 4
-	          mirtk calculate-element-wise "$onepad" -map 1 0 -o "$mri" -threads $threads ## generate mri as masked
-            seg_maths "$mri" -bin -fill "$mask" ## Generate mask
-        fi
-    else # 5 6 7 8
-        if [[ -s "$mask" ]] ; then # 5 6
-            if [[ -s "$mri" ]] ; then # 5
-	              cp "$mask" mask.nii.gz
-	              mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6
-                mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o masked.nii -threads $threads
-                mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add masked.nii -o "$onepad" float -threads $threads
-            else # 6
-                return 1
-            fi
-        else # 7 8
-            if [[ -s "$mri" ]] ; then # 7
-                seg_maths "$mri" -bin -fill "$mask" ## Generate mask
-                mirtk dilate-image "$mask" mask-dil.nii -iterations 6
-                mirtk calculate-element-wise mask-dil.nii -sub "$mask" -add "$mri" -o "$onepad" float -threads $threads
-            else # 8
-                return 1
-            fi
-        fi
-    fi
+    echo "MRI: $mri"
+    echo "MASK: $mask"
+    echo "ONEPAD: $onepad"
+
+    # Check existence
+    local has_op=0 has_mask=0 has_mri=0
+    [[ -s "$onepad" ]] && has_op=1
+    [[ -s "$mask" ]] && has_mask=1
+    [[ -s "$mri" ]] && has_mri=1
+
+    case "$has_op$has_mask$has_mri" in
+        111)
+            echo "Case 1: All necessary files exist. Nothing to do." ;;
+
+        110)
+            echo "Case 2: Generating MRI from onepad"
+            mirtk calculate-element-wise "$onepad" -mask "$mask" -map 1 0 -o "$mri" -threads "$threads" ;;
+
+        101)
+            echo "Case 3: Generating mask from onepad (MRI untouched)"
+            mirtk calculate-element-wise "$onepad" -map 1 0 -o tmp-mri.nii -threads "$threads"
+            seg_maths tmp-mri.nii -bin -fill "$mask" ;;
+
+        100)
+            echo "Case 4: Generating MRI and mask from onepad"
+            mirtk calculate-element-wise "$onepad" -map 1 0 -o "$mri" -threads "$threads"
+            seg_maths "$mri" -bin -fill "$mask" ;;
+
+        011)
+            echo "Case 5: Generating onepad from MRI and mask"
+            cp "$mask" mask.nii.gz
+            mirtk dilate-image mask.nii.gz mask-dil.nii -iterations 6
+            mirtk calculate-element-wise "$mri" -mask mask.nii.gz -pad 0 -o brain.nii.gz -threads "$threads"
+            mirtk calculate-element-wise mask-dil.nii -sub mask.nii.gz -add brain.nii.gz -o "$onepad" float -threads "$threads" ;;
+
+        010)
+            echo "Case 6: Error - mask provided without MRI or onepad"
+            cd ..
+            return 1 ;;
+
+        001)
+            echo "Case 7: Generating mask and onepad from masked MRI"
+            seg_maths "$mri" -bin -fill "$mask"
+            mirtk dilate-image "$mask" mask-dil.nii -iterations 6
+            mirtk calculate-element-wise mask-dil.nii -sub "$mask" -add "$mri" -o "$onepad" float -threads "$threads" ;;
+
+        000)
+            echo "Case 8: Error - no files provided"
+            cd ..
+            return 1 ;;
+
+        *)
+            echo "Unexpected combination of inputs: OP:$has_op MASK:$has_mask MRI:$has_mri"
+            cd ..
+            rm -r "$tmpdir"
+            return 1 ;;
+    esac
 
     cd ..
 }
