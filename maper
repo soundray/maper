@@ -369,13 +369,13 @@ regprop() {  ### Registration and label propagation
                 fi
 		            nextlevel=2
 	          else
-		            mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+		            mirtk register "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
                       -dofin coarse0.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine -levels 4 1 \
 		                  -threads $threads
 		            nextlevel=4
 	          fi
 
-	          mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
+	          mirtk register "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
 	    	          -dofin coarse.dof.gz -dofout fine.dof.gz \
 	    	          -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
 	    	          -par "Strict step length range" "No" \
