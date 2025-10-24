@@ -403,9 +403,31 @@ regprop() {  ### Registration and label propagation
 	          mirtk transform-image $srcseg "$autoseg" \
 		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
 	      fi
+        ref=${targetseg[$i]}
+        if [[ -s $ref ]] ; then
+            jc $ref $autoseg "$autosegdir/$i"-jc.csv "$autosegdir/$i"-meanjc.csv
+        fi
     done
     #
     cd ..
+}
+
+d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; }
+
+jc() {
+    local refseg=$1 ; shift
+    local tgtseg=$1 ; shift
+    local indcsv=$1 ; shift
+    local avgcsv=$1 ; shift
+    local region
+    local dsc
+    local tmpdir=$(mktemp -d jc.XXXX)
+    cd "$tmpdir" || exit 1
+    echo %%%%% JC %%%%%
+		seg_stats $refseg -d $tgtseg | grep = | tr -d 'a-zL\[\]=' >ls.csv
+		( echo "region,jc" ; cat ls.csv | grep -v M | while read region dsc ; do
+				  echo $region, $(d2j $dsc) ; done ) >"$indcsv"
+		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$avgcsv"
 }
 
 onepadgen() {
@@ -476,8 +498,6 @@ onepadgen() {
 
     cd ..
 }
-
-d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; }
 
 ###
 msg "=== Preparation: staging files and generating onepad images ==="
@@ -604,11 +624,8 @@ if [[ $atlasn -ge 3 ]] ; then
                         #
 			                  # Compare fused with reference
 			                  ref=${targetseg["$i"]}
-			                  if [[ -s $ref ]] ; then
-			                      seg_stats $ref -d "$thisseg".nii.gz | grep = | tr -d 'a-zL\[\]=' >ls.csv
-			                      ( echo region,jc ; cat ls.csv | grep -v M | while read region dsc ; do
-				                          echo $region, $(d2j $dsc) ; done ) >"$thisseg"-indivjc.csv
-			                      echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$thisseg"-meanjc.csv
+                        if [[ -s $ref ]] ; then
+                            jc $ref "$thisseg".nii.gz "$thisseg"-indivjc.csv "$thisseg"-meanjc.csv
 			                  fi
 		                fi
 		            fi
