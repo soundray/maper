@@ -374,8 +374,6 @@ regprop() {  ### Registration and label propagation
 	          fi
             #
 	          mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
-            #
-	          mirtk register "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
 	    	          -dofin coarse.dof.gz -dofout fine.dof.gz \
 	    	          -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
 	    	          -par "Strict step length range" "No" \
