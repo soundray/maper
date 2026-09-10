@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+output="${1:-maper.sif}"
+
+archive="$(nix build .#container --no-link --print-out-paths)"
+tmp_tar="$(mktemp --suffix=.tar)"
+
+cleanup() {
+  rm -f "$tmp_tar"
+}
+trap cleanup EXIT
+
+gzip -dc "$archive" > "$tmp_tar"
+
+apptainer build --fix-perms "$output" \
+  "docker-archive:$tmp_tar"
+
+printf 'Built %s\n' "$output"

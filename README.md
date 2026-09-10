@@ -116,3 +116,16 @@ memory-intensive than shell-level parallelization. Use the `-threads`
 option to `launchlist-gen` and `maper`.
 
 Feedback welcome at metrimorphics@soundray.de
+
+### Apptainer image
+
+On an x86-64 Linux system with Nix and Apptainer installed, build a MAPER Apptainer image with reproducibly pinned dependencies:
+
+    ./build-sif
+
+This creates `maper.sif`. An alternative output filename can be supplied:
+
+    ./build-sif maper-test.sif
+
+The container contents are built from the nixpkgs revision pinned in
+`flake.lock`.
