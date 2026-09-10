@@ -8,9 +8,10 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       maper = import ./default.nix { inherit pkgs; };
+      container = import ./docker.nix { inherit pkgs; };
     in {
       packages.${system} = {
-        inherit maper;
+        inherit maper container;
         default = maper;
       };
     };

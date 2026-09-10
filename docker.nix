@@ -1,7 +1,5 @@
 {
-  # nixos-unstable as of 2023-05-26
-  pkgsPath ? builtins.fetchTarball https://github.com/nixos/nixpkgs/archive/bfb7a882678e518398ce9a31a881538679f6f092.tar.gz
-, pkgs ? import <nixpkgs> {}
+  pkgs ? import <nixpkgs> {}
 }:
 let
   maper = pkgs.callPackage ./default.nix {};
@@ -15,9 +13,6 @@ in (pkgs.dockerTools.buildImage {
   tag = "latest";
   copyToRoot = env;
   config.Env = [ "NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt" ];
-  runAsRoot = ''
-    chmod -vR u+w /etc
-  '';
 }) // {
   inherit env;
 }
