@@ -18,9 +18,9 @@ let
     "${pkgs.gnugrep}/bin"
     "${pkgs.gnused}/bin"
     "${pkgs.bc}/bin"
-    "${pkgs.utillinux}/bin"
+    "${pkgs.util-linux}/bin"
   ];
-in pkgs.runCommandNoCC "maper" {
+in pkgs.runCommand "maper" {
   meta = {
     license = lib.licenses.gpl2;
     description = "Multi-atlas propagation with enhanced registration";
