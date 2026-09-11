@@ -13,7 +13,7 @@ trap cleanup EXIT
 
 gzip -dc "$archive" > "$tmp_tar"
 
-apptainer build --fix-perms "$output" \
+apptainer build --force --fix-perms "$output" \
   "docker-archive:$tmp_tar"
 
 printf 'Built %s\n' "$output"
