@@ -36,10 +36,31 @@
         "type": "github"
       }
     },
+    "posnorm": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789114470,
+        "narHash": "sha256-PNko56OVTK2GAotRylhRP/m+ZlE3nrPehnJX14KZ+OE=",
+        "owner": "soundray",
+        "repo": "posnorm",
+        "rev": "4fe57dbae43c26f201abf402e2fc7b3d97a00e16",
+        "type": "github"
+      },
+      "original": {
+        "owner": "soundray",
+        "repo": "posnorm",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "nixpkgs": "nixpkgs",
-        "pincram": "pincram"
+        "pincram": "pincram",
+        "posnorm": "posnorm"
       }
     }
   },

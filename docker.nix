@@ -1,6 +1,7 @@
 {
   pkgs ? import <nixpkgs> {}
 , pincram ? null
+, posnorm ? null
 }:
 let
   maper = pkgs.callPackage ./default.nix {};
@@ -12,7 +13,8 @@ let
       pkgs.coreutils
       pkgs.cacert
     ]
-    ++ pkgs.lib.optional (pincram != null) pincram;
+    ++ pkgs.lib.optional (pincram != null) pincram
+    ++ pkgs.lib.optional (posnorm != null) posnorm;
   };
   # docs: https://nixos.org/nixpkgs/manual/#sec-pkgs-dockerTools
 in (pkgs.dockerTools.buildImage {
