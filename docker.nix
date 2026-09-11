@@ -12,6 +12,7 @@ let
       pkgs.bashInteractive
       pkgs.coreutils
       pkgs.cacert
+      pkgs.ants
     ]
     ++ pkgs.lib.optional (pincram != null) pincram
     ++ pkgs.lib.optional (posnorm != null) posnorm;
