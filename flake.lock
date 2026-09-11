@@ -16,9 +16,30 @@
         "type": "github"
       }
     },
+    "pincram": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789112537,
+        "narHash": "sha256-f/rqytiRDdoPuomMPuww1w/oGdcOQdSDXOeaQN71oO0=",
+        "owner": "soundray",
+        "repo": "pincram",
+        "rev": "4f69b27c62e429535eba462cc766592751cacfb7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "soundray",
+        "repo": "pincram",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "pincram": "pincram"
       }
     }
   },
