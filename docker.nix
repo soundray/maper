@@ -9,6 +9,8 @@ let
     name = "maper-docker-env";
     paths = [
       maper
+      pkgs.mirtk
+      pkgs.niftyseg
       pkgs.bashInteractive
       pkgs.coreutils
       pkgs.cacert
