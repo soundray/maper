@@ -1,4 +1,4 @@
-#!/nix/store/fxlbzqvqshjdn2spl0v8i6wp9n6cq13d-python3-3.14.7-env/bin/python
+#!/usr/bin/env python3
 
 import argparse
 import json
@@ -223,4 +223,3 @@ if __name__ == "__main__":
     except Exception as exc:
         print(f"{os.path.basename(sys.argv[0])}: {exc}", file=sys.stderr)
         sys.exit(1)
-
