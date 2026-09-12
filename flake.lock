@@ -23,11 +23,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1789112537,
-        "narHash": "sha256-f/rqytiRDdoPuomMPuww1w/oGdcOQdSDXOeaQN71oO0=",
+        "lastModified": 1789215985,
+        "narHash": "sha256-T62dY/BgQmA0fceYlVERUNGjuL/pStMbICHA6MVWueU=",
         "owner": "soundray",
         "repo": "pincram",
-        "rev": "4f69b27c62e429535eba462cc766592751cacfb7",
+        "rev": "633b89238813617133cd5a402a265dd443594396",
         "type": "github"
       },
       "original": {
