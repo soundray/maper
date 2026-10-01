@@ -88,3 +88,55 @@ setup() { setup_common ; }
     [ "$status" -ne 0 ]
     [[ $output == *"Target specification incomplete"* ]]
 }
+
+# --- overlap assessment and fusion ----------------------------------------
+
+@test "target reference: per-pair overlap files are written" {
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/seg/seg-jc.csv" ]
+    [ -s "$OUT/T1/a1-T1/seg/seg-meanjc.csv" ]
+}
+
+@test "fusion with two label sets and references: every job succeeds and both sets are fused and assessed" {
+    for s in a1 a2 a3 ; do
+        run_maper "$s" -atlasn 3 \
+            -srclabels "segB:$FX/$s-seg2.nii.gz" \
+            -tgtlabels "seg:$FX/t-ref.nii.gz" -tgtlabels "segB:$FX/t-ref2.nii.gz"
+        [ "$status" -eq 0 ]
+    done
+    local set
+    for set in seg segB ; do
+        [ -s "$OUT/f3-$set-T1.nii.gz" ]
+        [ -s "$OUT/f3-$set-T1-tc3crisp.nii.gz" ]
+        [ -s "$OUT/f3-$set-T1-meanjc.csv" ]
+        [ -s "$OUT/f3-$set-T1-indivjc.csv" ]
+    done
+}
+
+@test "fusion failure: maper exits non-zero and leaves no stale lock behind" {
+    for s in a1 a2 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    export STUB_FAIL=seg_LabFusion
+    run_maper a3 -atlasn 3
+    [ "$status" -ne 0 ]
+    run bash -c 'ls -d "$1"/fusion-semaphore-* 2>/dev/null' _ "$OUT"
+    [ -z "$output" ]
+}
+
+@test "fusion failure: a later run can fuse once the problem is fixed" {
+    for s in a1 a2 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    export STUB_FAIL=seg_LabFusion
+    run_maper a3 -atlasn 3
+    [ "$status" -ne 0 ]
+    unset STUB_FAIL
+    # a3's own registration results are already in place, so this only fuses
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+}
