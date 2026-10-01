@@ -18,6 +18,9 @@ usage() {
 
     Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -output-dir /path/to/write/output
 
+           $pname -h | --help
+              Show this text.
+
     <source_spec> consists of either
 
        [-srcop src-onepad.nii.gz]
@@ -97,6 +100,9 @@ usage() {
        Perform three-class (CSF, GM, WM) tissue mapping and prealign on the basis
        of two tissue classes (CSF and merged GMWM)
 
+    [-threads N]
+       Number of threads for MIRTK and NiftySeg (positive integer, default 1)
+
     [-quicktest]
        For accelerated run (very coarse result)
 
@@ -123,19 +129,17 @@ type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_m
 quicktest=
 srcop=null
 srcmri=null
-isrcsegs=
+srclabelspecs=()
 srcmask=null
-nsrcsegs=0
 srctc3raw=null
-spn=neutral.dof.gz
+spn=$pdir/neutral.dof.gz
 srccache=
 tgtop=null
 tgtmri=null
 tgtmask=null
-itgtsegs=
-ntgtsegs=0
+tgtlabelspecs=()
 tgttc3raw=null
-tpn=neutral.dof.gz
+tpn=$pdir/neutral.dof.gz
 tgtcache=
 outdir=$PWD/maper-$$
 atlasn=
@@ -148,25 +152,38 @@ notc=
 notc3=
 debug=
 threads=1
-[[ $# -lt 10 ]] && fatal "Parameter error"
+
+# Absolute path of a file argument. realpath fails when a parent directory is
+# missing; fall back to the argument as given so require_file can report it.
+abspath() { realpath -- "$1" 2>/dev/null || printf '%s\n' "$1" ; }
+
+# Options that take a value, so that a missing value is reported by name
+valopts=" -srcid -srcop -srcmri -srctc3raw -srcmask -srclabels -spn -srccache"
+valopts+=" -tgtid -tgtop -tgtmri -tgttc3raw -tgtmask -tgtlabels -tpn -tgtcache"
+valopts+=" -output-dir -atlasn -threads "
+
 while [ $# -gt 0 ]
 do
+    if [[ $valopts == *" $1 "* && $# -lt 2 ]] ; then
+        fatal "Parameter error: option $1 requires a value"
+    fi
     case "$1" in
+	-h|--help)       usage ; exit 0 ;;
 	-srcid)          srcid="$2" ; shift ;;
-	-srcop)          srcop=$(realpath "$2") ; shift ;;
-	-srcmri)        srcmri=$(realpath "$2") ; shift ;;
-	-srctc3raw)  srctc3raw=$(realpath "$2") ; shift ;;
-	-srcmask)      srcmask=$(realpath "$2") ; shift ;;
-	-srclabels)   isrcsegs="$isrcsegs "$2 ; (( nsrcsegs += 1 )) ; shift ;;
-	-spn)              spn=$(realpath "$2") ; shift ;;
+	-srcop)          srcop=$(abspath "$2") ; shift ;;
+	-srcmri)        srcmri=$(abspath "$2") ; shift ;;
+	-srctc3raw)  srctc3raw=$(abspath "$2") ; shift ;;
+	-srcmask)      srcmask=$(abspath "$2") ; shift ;;
+	-srclabels)   srclabelspecs+=("$2") ; shift ;;
+	-spn)              spn=$(abspath "$2") ; shift ;;
 	-srccache)    srccache=$(realpath "$2") ; shift ;;
 	-tgtid)          tgtid="$2" ; shift ;;
-	-tgtop)          tgtop=$(realpath "$2") ; shift ;;
-	-tgtmri)        tgtmri=$(realpath "$2") ; shift ;;
-	-tgttc3raw)  tgttc3raw=$(realpath "$2") ; shift ;;
-	-tgtmask)      tgtmask=$(realpath "$2") ; shift ;;
-	-tgtlabels)   itgtsegs="$itgtsegs "$2 ; (( ntgtsegs += 1 )) ; shift ;;
-	-tpn)              tpn=$(realpath "$2") ; shift ;;
+	-tgtop)          tgtop=$(abspath "$2") ; shift ;;
+	-tgtmri)        tgtmri=$(abspath "$2") ; shift ;;
+	-tgttc3raw)  tgttc3raw=$(abspath "$2") ; shift ;;
+	-tgtmask)      tgtmask=$(abspath "$2") ; shift ;;
+	-tgtlabels)   tgtlabelspecs+=("$2") ; shift ;;
+	-tpn)              tpn=$(abspath "$2") ; shift ;;
 	-tgtcache)    tgtcache=$(realpath "$2") ; shift ;;
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
@@ -183,40 +200,61 @@ do
 	-verbose)      verbose=1 ;;
 	-debug)          debug=1 ;;
 	-*)
-	    fatal "Parameter error" ;;
-*)  break ;; # terminate while loop
+	    fatal "Unknown option: $1" ;;
+	*)
+	    fatal "Unexpected argument: $1" ;;
     esac
     shift
 done
+
+[[ -n $srcid ]] || fatal "Parameter error: -srcid is required"
+[[ -n $tgtid ]] || fatal "Parameter error: -tgtid is required"
+[[ $threads =~ ^[1-9][0-9]*$ ]] || fatal "Parameter error: -threads requires a positive integer, got '$threads'"
+[[ -z $atlasn || $atlasn =~ ^[0-9]+$ ]] || fatal "Parameter error: -atlasn requires a number, got '$atlasn'"
+
+require_file() { [[ $2 == null || -e $2 ]] || fatal "Parameter error: file for $1 not found: $2" ; }
+require_file -srcop "$srcop"
+require_file -srcmri "$srcmri"
+require_file -srcmask "$srcmask"
+require_file -srctc3raw "$srctc3raw"
+require_file -spn "$spn"
+require_file -tgtop "$tgtop"
+require_file -tgtmri "$tgtmri"
+require_file -tgtmask "$tgtmask"
+require_file -tgttc3raw "$tgttc3raw"
+require_file -tpn "$tpn"
 
 export OMP_NUM_THREADS=$threads
 
 [[ $notc3 == 1 ]] && notc=1
 
-[[ $notc == 1 && $[ $tc3out + $tc3crisp + $tc3only ] > 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
+[[ $notc == 1 && $(( tc3out + tc3crisp + tc3only )) -gt 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
 
-[[ $[ $tc2 + $tc3 ] > 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
+[[ $(( tc2 + tc3 )) -gt 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
 
 [[ $tc3 == 0 ]] && tc2=1
 
+# Label sets are given as name:file. Everything after the first colon is the path.
+parse_labelspecs() { # <array-name> <option> <kind: Source|Target> <spec>...
+    local -n result=$1 ; shift
+    local option=$1 ; shift
+    local kind=$1 ; shift
+    local spec name file
+    for spec in "$@" ; do
+        name=${spec%%:*} ; file=${spec#*:}
+        [[ $spec == *:* && -n $name && -n $file ]] \
+            || fatal "Parameter error: $option expects name:file, got '$spec'"
+        [[ -e $file ]] || fatal "Parameter error: $kind segmentation '$name' does not exist: $file"
+        result["$name"]=$(realpath "$file")
+    done
+}
+
 declare -A sourceseg
-for i in $isrcsegs ; do
-    set -- $(echo $i | tr ':' ' ' )
-    segname=$1 ; shift
-    ii=$(realpath $1)
-    [[ -e $ii ]] || msg "Source seg $i does not exist"
-    sourceseg["$segname"]=$ii
-done
+parse_labelspecs sourceseg -srclabels Source "${srclabelspecs[@]}"
 [[ ${#sourceseg[@]} -lt 1 ]] && msg "No source segmentation defined"
 
 declare -A targetseg
-for i in $itgtsegs ; do
-    set -- $(echo $i | tr ':' ' ' )
-    segname=$1 ; shift
-    ii=$(realpath $1)
-    [[ -e $ii ]] || msg "Target seg $i does not exist"
-    targetseg["$segname"]=$ii
-done
+parse_labelspecs targetseg -tgtlabels Target "${tgtlabelspecs[@]}"
 
 baseoutdir=$outdir
 outdir="$outdir/$tgtid/$srcid-$tgtid"
@@ -393,14 +431,14 @@ regprop() {  ### Registration and label propagation
     fi
     #
     # c=0
-    for i in ${!sourceseg[@]} ; do
+    for i in "${!sourceseg[@]}" ; do
 	      srcseg=${sourceseg["$i"]}
 	      if [[ -s $srcseg ]] ; then
 	          autoseg="$autosegdir"/$i.nii.gz
 	          autosegtc="$autosegdir"/$i-tcsep.nii.gz
 	          [[ -e "$autoseg" ]] && continue
 	          if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
-	          mirtk transform-image $srcseg "$autoseg" \
+	          mirtk transform-image "$srcseg" "$autoseg" \
 		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
 	      fi
         ref=${targetseg[$i]}
@@ -614,7 +652,7 @@ fuse() {
 }
 
 if [[ $atlasn -ge 3 ]] ; then
-    for i in ${!sourceseg[@]} ; do
+    for i in "${!sourceseg[@]}" ; do
 	      set -- "$baseoutdir"/$tgtid/*-$tgtid/seg/"$i".nii.gz
 	      lock="$baseoutdir"/fusion-semaphore-$i-$tgtid
 	      if mkdir "$lock" 2>/dev/null ; then

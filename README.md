@@ -117,6 +117,16 @@ option to `launchlist-gen` and `maper`.
 
 Feedback welcome at metrimorphics@soundray.de
 
+### Tests
+
+The test suite uses [bats-core](https://github.com/bats-core/bats-core) and
+needs neither MIRTK nor NiftySeg: `tests/stubs` provides stand-ins that
+record their calls, create the expected output files and can be made to
+fail (`STUB_FAIL=mirtk:register`). The tests therefore cover `maper`'s
+control flow and argument handling, not registration quality.
+
+    bats tests/
+
 ### Apptainer image
 
 On an x86-64 Linux system with Nix and Apptainer installed, build a MAPER Apptainer image with reproducibly pinned dependencies:

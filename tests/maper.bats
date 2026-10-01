@@ -140,3 +140,146 @@ setup() { setup_common ; }
     [ "$status" -eq 0 ]
     [ -s "$OUT/f3-seg-T1.nii.gz" ]
 }
+
+# --- argument validation --------------------------------------------------
+
+@test "-h prints the usage text and exits 0" {
+    run "$MAPER" -h
+    [ "$status" -eq 0 ]
+    [[ $output == *"Usage:"* ]]
+}
+
+@test "--help prints the usage text and exits 0" {
+    run "$MAPER" --help
+    [ "$status" -eq 0 ]
+    [[ $output == *"Usage:"* ]]
+}
+
+@test "usage documents -threads" {
+    run "$MAPER" -h
+    [[ $output == *"-threads"* ]]
+}
+
+@test "no arguments: fails and says what is required" {
+    run "$MAPER"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-srcid is required"* ]]
+}
+
+@test "missing -srcid is rejected before anything is written" {
+    build_args a1
+    run "$MAPER" -tgtid T1 "${ARGS_NOID[@]}"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-srcid is required"* ]]
+    [ ! -e "$OUT" ]
+}
+
+@test "missing -tgtid is rejected before anything is written" {
+    build_args a1
+    run "$MAPER" -srcid a1 "${ARGS_NOID[@]}"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-tgtid is required"* ]]
+    [ ! -e "$OUT" ]
+}
+
+@test "unknown option is rejected and named" {
+    run_maper a1 -bogus
+    [ "$status" -ne 0 ]
+    [[ $output == *"Unknown option: -bogus"* ]]
+}
+
+@test "stray positional argument is rejected instead of silently ending option parsing" {
+    run_maper a1 stray -quicktest
+    [ "$status" -ne 0 ]
+    [[ $output == *"Unexpected argument: stray"* ]]
+}
+
+@test "option without a value is reported by name" {
+    build_args a1
+    run "$MAPER" -tgtid T1 "${ARGS_NOID[@]}" -srcid
+    [ "$status" -ne 0 ]
+    [[ $output == *"-srcid requires a value"* ]]
+}
+
+@test "missing source label file is fatal" {
+    run_maper a1 -srclabels "segB:$FX/MISSING.nii.gz"
+    [ "$status" -ne 0 ]
+    [[ $output == *"does not exist"*"MISSING.nii.gz"* ]]
+    [ ! -e "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+}
+
+@test "missing target label file is fatal" {
+    run_maper a1 -tgtlabels "seg:$FX/MISSING-ref.nii.gz"
+    [ "$status" -ne 0 ]
+    [[ $output == *"does not exist"*"MISSING-ref.nii.gz"* ]]
+}
+
+@test "source label spec without name:file form is rejected" {
+    run_maper a1 -srclabels "justafilename.nii.gz"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-srclabels expects name:file"* ]]
+}
+
+@test "target label spec without name:file form is rejected" {
+    run_maper a1 -tgtlabels "justafilename.nii.gz"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-tgtlabels expects name:file"* ]]
+}
+
+@test "label file path containing spaces works" {
+    mkdir "$FX/dir with space"
+    echo data > "$FX/dir with space/extra seg.nii.gz"
+    run_maper a1 -srclabels "spaced:$FX/dir with space/extra seg.nii.gz"
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/seg/spaced.nii.gz" ]
+}
+
+@test "missing input image is reported with the option name and path" {
+    run_maper a1 -tgtmri "$FX/no-such-image.nii.gz"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-tgtmri"*"no-such-image.nii.gz"* ]]
+}
+
+@test "input image in a directory that does not exist is reported by option name" {
+    run_maper a1 -srcmri /no/such/dir/image.nii.gz
+    [ "$status" -ne 0 ]
+    [[ $output == *"-srcmri"*"/no/such/dir/image.nii.gz"* ]]
+}
+
+@test "pretransformation file that does not exist is reported" {
+    run_maper a1 -spn "$FX/no-such.dof.gz" -tpn "$FX/no-such.dof.gz"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-spn"* ]]
+}
+
+@test "-threads must be a positive integer" {
+    local bad
+    for bad in abc 0 -3 1x "" ; do
+        run_maper a1 -threads "$bad"
+        [ "$status" -ne 0 ]
+        [[ $output == *"-threads"* ]]
+    done
+}
+
+@test "-threads accepts a positive integer" {
+    run_maper a1 -threads 2
+    [ "$status" -eq 0 ]
+}
+
+@test "-atlasn must be a number" {
+    run_maper a1 -atlasn many
+    [ "$status" -ne 0 ]
+    [[ $output == *"-atlasn"* ]]
+}
+
+@test "-tc2 and -tc3 are mutually exclusive" {
+    run_maper a1 -tc2 -tc3
+    [ "$status" -ne 0 ]
+    [[ $output == *"only one of -tc2 and -tc3"* ]]
+}
+
+@test "-notc is incompatible with the tc3 output options" {
+    run_maper a1 -notc -tc3out
+    [ "$status" -ne 0 ]
+    [[ $output == *"-notc"*"incompatible"* ]]
+}
