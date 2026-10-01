@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub for NiftySeg seg_stats. Output format follows what maper's jc() parses.
+echo "seg_stats $*" >> "${STUB_LOG:-/dev/null}"
+case " $* " in
+    *" -r "*) echo "0 10" ;;
+    *" -d "*) printf 'L[1] = %s\nL[2] = 0.7\nM = 0.75\n' "${STUB_DICE:-0.8}" ;;
+esac

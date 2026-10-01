@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test stub for NiftySeg seg_EM.
+echo "seg_EM $*" >> "${STUB_LOG:-/dev/null}"
+while [[ $# -gt 0 ]]; do
+    [[ $1 == -out || $1 == -bc_out ]] && echo stub > "$2"
+    shift
+done
