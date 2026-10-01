@@ -6,6 +6,9 @@ msg () {
 
 fatal () { usage ; msg "$@" ; exit 1 ; }
 
+# Runtime failure: message only (fatal() also prints the usage text).
+die () { msg "$@" ; exit 1 ; }
+
 tempdir () {
     : ${TMPDIR:="/tmp"}
     tdbase=$TMPDIR/$USER

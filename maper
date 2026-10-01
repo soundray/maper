@@ -434,6 +434,9 @@ onepadgen() {
     local mri=$(realpath "$1") ; shift
     local mask=$(realpath "$1") ; shift
     local onepad=$(realpath "$1") ; shift
+    local side=$1 ; shift   # src or tgt, for error messages
+    local label=Source ; [[ $side == tgt ]] && label=Target
+    local incomplete="$label specification incomplete. Either [-${side}op file] or [-${side}mri fileA -${side}mask fileB] must be provided on commandline."
 
     local tmpdir=$(mktemp -d onepadgen.XXXX)
     cd "$tmpdir" || exit 1
@@ -475,8 +478,7 @@ onepadgen() {
 
         010)
             echo "Case 6: Error - mask provided without MRI or onepad"
-            cd ..
-            return 1 ;;
+            fatal "$incomplete" ;;
 
         001)
             echo "Case 7: Generating mask and onepad from masked MRI"
@@ -486,14 +488,10 @@ onepadgen() {
 
         000)
             echo "Case 8: Error - no files provided"
-            cd ..
-            return 1 ;;
+            fatal "$incomplete" ;;
 
         *)
-            echo "Unexpected combination of inputs: OP:$has_op MASK:$has_mask MRI:$has_mri"
-            cd ..
-            rm -r "$tmpdir"
-            return 1 ;;
+            fatal "Unexpected combination of inputs: OP:$has_op MASK:$has_mask MRI:$has_mri" ;;
     esac
 
     cd ..
@@ -540,16 +538,16 @@ cp "$srcmri" src/mri.nii.gz
 cp "$srcmask" src/mask.nii.gz
 [[ -z $notc ]] && cp "$srctc3raw" src/tc3raw.nii.gz
 cp "$spn" src/pre.dof.gz
-onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
-    || fatal "Source specification incomplete. Either [-srcop file] or [-srcmri fileA -srcmask fileB] must be provided on commandline."
+# Called as a plain statement (not as "onepadgen || fatal"): in that form set -e
+# is disabled inside the function and failed mirtk calls would go unnoticed.
+onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz src
 
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
 cp "$tgtmask" tgt/mask.nii.gz
 [[ -z $notc ]] && cp "$tgttc3raw" tgt/tc3raw.nii.gz
 cp "$tpn" tgt/pre.dof.gz
-onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
-    || fatal "Target specification incomplete. Either [-tgtop file] or [-tgtmri fileA -tgtmask fileB] must be provided on commandline."
+onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz tgt
 
 ### Main routine
 
@@ -577,7 +575,11 @@ fi
 
 if [[ $tc3only == 0 ]] ; then
     msg "=== Registration and propagation ==="
+    # Without pipefail the status of this pipeline is that of the progress loop,
+    # so regprop's own status has to be read from PIPESTATUS.
     regprop "$td"/src "$td"/tgt "$td"/regout | while read i ; do progress "$i" ; done
+    regprop_status=${PIPESTATUS[0]}
+    [[ $regprop_status -eq 0 ]] || die "Registration and propagation failed (exit status $regprop_status)"
     msg "."
 fi
 
