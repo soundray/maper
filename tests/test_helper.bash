@@ -15,6 +15,7 @@ setup_common() {
     export TMPDIR="$BATS_TEST_TMPDIR/tmp"
     export USER="${USER:-tester}"
     export STUB_LOG="$BATS_TEST_TMPDIR/stub.log"
+    export STUB_STATE_DIR="$BATS_TEST_TMPDIR"
     mkdir -p "$TMPDIR"
     : > "$STUB_LOG"
 
@@ -109,3 +110,33 @@ ll_has() {
 }
 
 ll_count() { wc -l < "$LL" | tr -d ' ' ; }
+
+# --- concurrency helpers ------------------------------------------------------
+
+# wait_for <path> [tenths of a second]: wait until the path exists
+wait_for() {
+    local k
+    for (( k = 0 ; k < ${2:-100} ; k++ )) ; do
+        if [[ -e $1 ]] ; then return 0 ; fi
+        sleep 0.1
+    done
+    return 1
+}
+
+# watch_until_exit <pid> <command...>: run the command every 0.05 s for as long as the
+# process <pid> lives; its output, one line per sample, is what this prints
+watch_until_exit() {
+    local pid=$1 ; shift
+    while kill -0 "$pid" 2>/dev/null ; do
+        "$@"
+        sleep 0.05
+    done
+}
+
+# maper_pair <atlas-id> [extra maper args...]: command line for atlas <id> against T1
+# in $OUT, for starting a job in the background
+maper_pair() {
+    local s=$1 ; shift
+    build_args "$s"
+    MAPER_PAIR=("$MAPER" -srcid "$s" -tgtid T1 "${ARGS_NOID[@]}" "$@")
+}

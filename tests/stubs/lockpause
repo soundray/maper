@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Test stub for mkdir, rm and rmdir (the latter two are symlinks to this file).
+# They are the plain tools, except that a fusion lock (.../fusion-semaphore-*) can be
+# made to take time, once per test, to force a particular interleaving of two jobs:
+#   STUB_LOCK_ACQUIRE_PAUSE=<s>  right after mkdir has created the lock: the job holds
+#                                the lock but has not yet looked at the results
+#   STUB_LOCK_RELEASE_PAUSE=<s>  before the lock is removed: the job is done with its
+#                                pass but has not yet let go
+# STUB_STATE_DIR is where the "already paused" marks are kept.
+tool=${0##*/}
+self=$(cd "$(dirname "$0")" && pwd)
+real=$(PATH=${PATH//"$self":/} command -v "$tool")
+
+is_lock=
+for a in "$@" ; do
+    if [[ $a == */fusion-semaphore-* ]] ; then is_lock=1 ; fi
+done
+
+pause_once() { # <mark> <seconds>
+    if [[ -n $is_lock && -n ${2:-} && ! -e ${STUB_STATE_DIR:?}/$1 ]] ; then
+        : > "$STUB_STATE_DIR/$1"
+        sleep "$2"
+    fi
+}
+
+if [[ $tool == mkdir ]] ; then
+    "$real" "$@" || exit
+    pause_once acquire-paused "${STUB_LOCK_ACQUIRE_PAUSE:-}"
+else
+    pause_once release-paused "${STUB_LOCK_RELEASE_PAUSE:-}"
+    exec "$real" "$@"
+fi

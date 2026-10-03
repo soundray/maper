@@ -579,6 +579,47 @@ onepadgen() {
     cd ..
 }
 
+### Publishing files to places other jobs look at
+#
+# Jobs of the same target run at the same time and read each other's output: the
+# fusion counts and reads the results in the output directory, and every job looks
+# into the shared caches. Whatever lands there must be complete from the first
+# moment it can be seen, so it is written under a temporary name next to its
+# destination and then renamed, which is atomic.
+
+# publish <file> <destination file>
+publish() {
+    local tmp="$2.tmp.$$"
+    if cp "$1" "$tmp" && mv -f "$tmp" "$2" ; then return 0 ; fi
+    rm -f "$tmp"
+    return 1
+}
+
+# stage_out <directory> <destination>: publish every file below <directory>
+stage_out() {
+    local f
+    while IFS= read -r -d '' f ; do mkdir -p "$2/$f" ; done < <(cd "$1" && find . -type d -print0)
+    while IFS= read -r -d '' f ; do publish "$1/$f" "$2/$f" ; done < <(cd "$1" && find . -type f -print0)
+}
+
+# publish_cache <directory with the files> <cache directory>
+# The cache directory is created empty at the start, and a job that finds fewer than
+# nine files in it generates them itself. The full directory takes its place in one
+# step. If another job was first, its directory stays: both hold the same files.
+# A cache that cannot be written is not an error, only slower.
+publish_cache() {
+    local tmp
+    if ! tmp=$(mktemp -d "$2.tmp.XXXXXX") || ! cp "$1"/* "$tmp"/ ; then
+        msg "Warning: could not write the cache $2 -- not caching"
+        if [[ -n $tmp ]] ; then rm -rf "$tmp" ; fi
+        return 0
+    fi
+    if ! mv -T "$tmp" "$2" 2>/dev/null ; then
+        rm -rf "$tmp"
+        if [[ -z $(ls -A "$2" 2>/dev/null) ]] ; then msg "Warning: could not publish the cache $2 -- not caching" ; fi
+    fi
+}
+
 ###
 msg "=== Preparation: staging files and generating onepad images ==="
 
@@ -678,7 +719,7 @@ fi
 # placeholders, and the tissue-class maps are placeholders too: none of it
 # is written out, so a dry run cannot make a later real run skip its work.
 if [[ -z $dryrun ]] ; then
-    cp -r regout/* "$outdir"/
+    stage_out regout "$outdir"
     [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
     [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
 fi
@@ -686,8 +727,8 @@ fi
 
 # Fill the caches before a possible -tc3only exit: storing the tissue-class
 # maps for later runs is what -srccache/-tgtcache are for.
-[[ -z $dryrun && $fillsrccache == 1 && -n $srccache_ ]] && cp src/* "$srccache_"/
-[[ -z $dryrun && $filltgtcache == 1 && -n $tgtcache_ ]] && cp tgt/* "$tgtcache_"/
+[[ -z $dryrun && $fillsrccache == 1 && -n $srccache_ ]] && publish_cache src "$srccache_"
+[[ -z $dryrun && $filltgtcache == 1 && -n $tgtcache_ ]] && publish_cache tgt "$tgtcache_"
 
 [[ $tc3only -ne 0 ]] && exit 0
 
@@ -702,41 +743,63 @@ fuse() {
     rm merged.nii
 }
 
+# fuse_if_ready <label set>: fuse the results of the label set if there are enough
+# of them and it has not been done. Runs while the fusion lock is held.
+fuse_if_ready() {
+    local i=$1 f nready thisseg ref sep min max
+    local -a results=()
+    for f in "$baseoutdir/$tgtid"/*"-$tgtid"/seg/"$i".nii.gz ; do
+        if [[ -s $f ]] ; then results+=("$f") ; fi
+    done
+    nready=${#results[@]}
+    [[ $nready -ge $atlasn ]] || return 0
+
+    # Fuse output
+    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
+    [[ ! -s $thisseg.nii.gz ]] || return 0
+    fuse "$thisseg".nii.gz "$nready" "${results[@]}"
+
+    # Generate tissue-class separated output
+    if [[ -z $notc ]] ; then
+        if [[ -z $dryrun ]] ; then
+            read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
+            sep=$(( max + 1 ))
+            seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
+            cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
+        fi
+
+        # Compare fused with reference
+        ref=${targetseg["$i"]}
+        if [[ -s $ref ]] ; then
+            jc "$ref" "$thisseg".nii.gz "$thisseg"-indivjc.csv "$thisseg"-meanjc.csv
+        fi
+    fi
+}
+
+# Of all the jobs for a target, the last one to deliver its results has to do the
+# fusion, and only one job may do it. Each job therefore
+#   1. leaves a marker: "my results are in place, somebody has to look",
+#   2. tries to take the lock (mkdir is atomic); if another job holds it, it is
+#      done -- the holder is responsible for the marker, see 4,
+#   3. as lock holder removes the marker, and only then counts the results; every
+#      result published before the marker was made is therefore counted,
+#   4. lets go of the lock and looks at the marker again. If one has appeared in the
+#      meantime, a job that found the lock taken relies on this job: it starts over.
+# Counting before taking the lock, or not looking again after letting go, loses the
+# fusion when the last two jobs finish at about the same time.
 if [[ $atlasn -ge 3 ]] ; then
     for i in "${!sourceseg[@]}" ; do
-	      set -- "$baseoutdir"/$tgtid/*-$tgtid/seg/"$i".nii.gz
-	      lock="$baseoutdir"/fusion-semaphore-$i-$tgtid
-	      if mkdir "$lock" 2>/dev/null ; then
-	          fusion_lock=$lock
-	          nready=$#
-	          if [[ $nready -ge $atlasn ]] ; then
-                #
-		            # Fuse output
-		            thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
-                #
-		            if [[ ! -s $thisseg.nii.gz ]] ; then
-		                fuse "$thisseg".nii.gz $# "$@"
-                    #
-		                # Generate tissue-class separated output
-		                if [[ -z $notc ]] ; then
-			                  if [[ -z $dryrun ]] ; then
-				                    read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
-				                    sep=$[max + 1]
-				                    seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-				                    cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
-			                  fi
-                        #
-			                  # Compare fused with reference
-			                  ref=${targetseg["$i"]}
-                        if [[ -s $ref ]] ; then
-                            jc "$ref" "$thisseg".nii.gz "$thisseg"-indivjc.csv "$thisseg"-meanjc.csv
-			                  fi
-		                fi
-		            fi
-	          fi
-	          rm -r "$lock"
-	          fusion_lock=
-	      fi
+        lock="$baseoutdir/fusion-semaphore-$i-$tgtid"
+        pending="$baseoutdir/fusion-pending-$i-$tgtid"
+        : > "$pending"
+        while mkdir "$lock" 2>/dev/null ; do
+            fusion_lock=$lock
+            rm -f "$pending"
+            fuse_if_ready "$i"
+            rmdir "$lock"
+            fusion_lock=
+            [[ -e $pending ]] || break
+        done
     done
 fi
 

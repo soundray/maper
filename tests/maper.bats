@@ -570,3 +570,139 @@ jc_files() {
     [ "$(cat "$JC_INDIV")" = $'region,jc\n1, .000007\n2, .333333' ]
     [ "$(cat "$JC_MEAN")" = ".142857" ]
 }
+
+# --- jobs running at the same time ---------------------------------------------------
+#
+# The races are forced, not hoped for: tests/stubs/lockpause makes a job sit on the fusion
+# lock at a chosen point, and tests/stubs/cp writes files slowly in two halves so that the
+# test can look at them while they are half written.
+
+no_leftovers() { # the output directory holds no lock, no re-check marker, no temporary file
+    [ -z "$(find "$OUT" \( -name 'fusion-*' -o -name '*.tmp.*' \) | head -n 1)" ]
+}
+
+@test "fusion: a result that is published while another job holds the lock is not missed" {
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    # job a2 takes the lock and sits on it before it looks at the results ...
+    maper_pair a2 -atlasn 3
+    STUB_LOCK_ACQUIRE_PAUSE=5 "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/a2.log" 2>&1 &
+    local pid=$!
+    wait_for "$OUT/fusion-semaphore-seg-T1"
+    # ... and job a3 delivers the third result while it does
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    wait "$pid"
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+}
+
+@test "fusion: a result that arrives after the lock holder has counted is picked up when it lets go" {
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    # job a2 has counted two results and is about to release the lock ...
+    maper_pair a2 -atlasn 3
+    STUB_LOCK_RELEASE_PAUSE=5 "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/a2.log" 2>&1 &
+    local pid=$!
+    wait_for "$OUT/fusion-semaphore-seg-T1"
+    # ... when job a3 delivers the third result and cannot get the lock
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [ ! -e "$OUT/f3-seg-T1.nii.gz" ]    # a3 left it to the lock holder
+    wait "$pid"
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+}
+
+@test "fusion: no lock, marker or temporary file is left behind" {
+    local s
+    for s in a1 a2 a3 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+    no_leftovers
+}
+
+@test "fusion: eight jobs at once give exactly one fused result, round after round" {
+    # Without forced timing this still catches the lost hand-over: the code that counted before
+    # taking the lock failed in about one round in three here (all jobs exiting 0, no fusion).
+    local k part round pids pid
+    for k in 1 2 3 4 5 6 7 8 ; do
+        for part in mri mask seg seg2 ; do cp "$FX/a1-$part.nii.gz" "$FX/s$k-$part.nii.gz" ; done
+    done
+    for round in 1 2 3 4 5 6 ; do
+        OUT="$BATS_TEST_TMPDIR/round$round"
+        pids=()
+        for k in 1 2 3 4 5 6 7 8 ; do
+            maper_pair "s$k" -atlasn 8 -tgtlabels "seg:$FX/t-ref.nii.gz" -srccache "$BATS_TEST_TMPDIR/cache"
+            "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/s$k.$round.log" 2>&1 &
+            pids+=($!)
+        done
+        for pid in "${pids[@]}" ; do wait "$pid" ; done
+        [ -s "$OUT/f8-seg-T1.nii.gz" ]
+        [ "$(ls "$OUT" | grep -c '^f[0-9]*-seg-T1.nii.gz$')" -eq 1 ]
+        no_leftovers
+    done
+}
+
+sizes_of_results() { # the size of each result file that exists
+    local f
+    for f in "$OUT/T1/a1-T1/src-tgt.dof.gz" "$OUT/T1/a1-T1/seg/seg.nii.gz" ; do
+        if [[ -e $f ]] ; then wc -c < "$f" ; fi
+    done
+}
+
+@test "results appear in the output directory complete or not at all" {
+    maper_pair a1
+    STUB_CP_PAUSE=0.3 STUB_CP_MATCH="$OUT" "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/a1.log" 2>&1 &
+    local pid=$!
+    local sizes size
+    sizes=$(watch_until_exit "$pid" sizes_of_results)
+    wait "$pid"
+    [ -s "$OUT/T1/a1-T1/seg/seg.nii.gz" ]
+    [ -n "$sizes" ]                          # the files were looked at while they were being written
+    for size in $sizes ; do
+        [ "$size" -eq 5 ]                    # "stub" and a newline: never half of it
+    done
+    no_leftovers
+}
+
+entries_of() { # the number of entries of a directory, if it exists
+    if [[ -d $1 ]] ; then ls "$1" | wc -l ; fi
+}
+
+@test "a cache is visible complete or not at all while it is filled" {
+    local c="$BATS_TEST_TMPDIR/cache" counts n final
+    mkdir "$c"
+    maper_pair a1 -srccache "$c"
+    STUB_CP_PAUSE=0.15 STUB_CP_MATCH="$c" "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/a1.log" 2>&1 &
+    local pid=$!
+    counts=$(watch_until_exit "$pid" entries_of "$c/a1")
+    wait "$pid"
+    final=$(ls "$c/a1" | wc -l)
+    [ "$final" -gt 8 ]
+    for n in $counts ; do
+        if [ "$n" -ne 0 ] && [ "$n" -ne "$final" ] ; then
+            echo "saw a cache of $n files while it should have 0 or $final" >&2
+            false
+        fi
+    done
+    [ -z "$(find "$c" -name '*.tmp.*')" ]
+}
+
+@test "two jobs filling the same cold cache at once: one complete cache, both jobs succeed" {
+    local c="$BATS_TEST_TMPDIR/cache"
+    mkdir "$c"
+    maper_pair a1 -srccache "$c" -output-dir "$BATS_TEST_TMPDIR/out-x"
+    STUB_CP_PAUSE=0.1 STUB_CP_MATCH="$c" "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/x.log" 2>&1 &
+    local px=$!
+    maper_pair a1 -srccache "$c" -output-dir "$BATS_TEST_TMPDIR/out-y"
+    STUB_CP_PAUSE=0.1 STUB_CP_MATCH="$c" "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/y.log" 2>&1 &
+    local py=$!
+    wait "$px"
+    wait "$py"
+    [ "$(ls "$c/a1" | wc -l)" -gt 8 ]
+    [ "$(find "$c/a1" -type f -size -5c | wc -l)" -eq 0 ]
+    [ -z "$(find "$c" -name '*.tmp.*')" ]
+    [ -s "$BATS_TEST_TMPDIR/out-x/T1/a1-T1/src-tgt.dof.gz" ]
+    [ -s "$BATS_TEST_TMPDIR/out-y/T1/a1-T1/src-tgt.dof.gz" ]
+}
