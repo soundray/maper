@@ -107,8 +107,11 @@ usage() {
        For accelerated run (very coarse result)
 
     [-dry-run]
-       Test if options correctly specified. Perform label fusion if -atlasn also
-       specified.
+       Test if options correctly specified. No results are written to -output-dir
+       or to the caches (-debug still saves the working directory). Performs
+       label fusion of already existing results if
+       -atlasn is also specified (without the tissue-class based output, which
+       needs tissue maps that a dry run does not compute).
 
     [-verbose]
        To show registration output on stdout
@@ -349,7 +352,7 @@ regprop() {  ### Registration and label propagation
     ds=2.5 ; [[ $quicktest ]] && ds=10
     #
     if [[ -z $dryrun ]] ; then
-	      if [[ ! -e "$dof" ]] ; then
+	      if [[ ! -s "$dof" ]] ; then
             #
 	          mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
 	          mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
@@ -436,8 +439,8 @@ regprop() {  ### Registration and label propagation
 	      if [[ -s $srcseg ]] ; then
 	          autoseg="$autosegdir"/$i.nii.gz
 	          autosegtc="$autosegdir"/$i-tcsep.nii.gz
-	          [[ -e "$autoseg" ]] && continue
-	          if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
+	          [[ -s "$autoseg" ]] && continue
+	          [[ -n $dryrun ]] && continue
 	          mirtk transform-image "$srcseg" "$autoseg" \
 		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
 	      fi
@@ -632,14 +635,21 @@ fi
 
 ### Stage out results
 
-cp -r regout/* "$outdir"/
+# In a dry run regout holds only copies of results that already exist plus
+# placeholders, and the tissue-class maps are placeholders too: none of it
+# is written out, so a dry run cannot make a later real run skip its work.
+if [[ -z $dryrun ]] ; then
+    cp -r regout/* "$outdir"/
+    [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
+    [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
+fi
 [[ $debug ]] && cp -a $td "$outdir"
-[[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
-[[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
+
 # Fill the caches before a possible -tc3only exit: storing the tissue-class
 # maps for later runs is what -srccache/-tgtcache are for.
-[[ ! $dryrun ]] && [[ $fillsrccache == 1 ]] && [[ -n $srccache_ ]] && cp src/* "$srccache_"/
-[[ ! $dryrun ]] && [[ $filltgtcache == 1 ]] && [[ -n $tgtcache_ ]] && cp tgt/* "$tgtcache_"/
+[[ -z $dryrun && $fillsrccache == 1 && -n $srccache_ ]] && cp src/* "$srccache_"/
+[[ -z $dryrun && $filltgtcache == 1 && -n $tgtcache_ ]] && cp tgt/* "$tgtcache_"/
+
 [[ $tc3only -ne 0 ]] && exit 0
 
 ### Fusion if numbers suffice
@@ -670,10 +680,12 @@ if [[ $atlasn -ge 3 ]] ; then
                     #
 		                # Generate tissue-class separated output
 		                if [[ -z $notc ]] ; then
-			                  read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
-			                  sep=$[max + 1]
-			                  seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-                        cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
+			                  if [[ -z $dryrun ]] ; then
+				                    read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
+				                    sep=$[max + 1]
+				                    seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
+				                    cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
+			                  fi
                         #
 			                  # Compare fused with reference
 			                  ref=${targetseg["$i"]}

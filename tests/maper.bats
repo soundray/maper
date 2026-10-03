@@ -332,3 +332,84 @@ setup() { setup_common ; }
     [ "$status" -eq 0 ]
     [ "$(stub_calls seg_EM)" -eq 0 ]
 }
+
+# --- -dry-run -----------------------------------------------------------------
+
+@test "dry run: still rejects an incomplete specification" {
+    run "$MAPER" -dry-run -srcid a1 -tgtid T1 -srcmask "$FX/a1-mask.nii.gz" \
+        -srclabels "seg:$FX/a1-seg.nii.gz" \
+        -tgtmri "$FX/t-mri.nii.gz" -tgtmask "$FX/t-mask.nii.gz" -output-dir "$OUT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"Source specification incomplete"* ]]
+}
+
+@test "dry run: runs no registration" {
+    run_maper a1 -dry-run
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls mirtk register)" -eq 0 ]
+}
+
+@test "dry run: writes no files to the output directory" {
+    run_maper a1 -dry-run
+    [ "$status" -eq 0 ]
+    [ -z "$(find "$OUT" -type f)" ]
+}
+
+@test "dry run: -tc3out and -tc3crisp do not write placeholder maps" {
+    run_maper a1 -dry-run -tc3out -tc3crisp
+    [ "$status" -eq 0 ]
+    [ -z "$(find "$OUT" -type f)" ]
+}
+
+@test "dry run: -debug still saves the working directory, but no results" {
+    run_maper a1 -dry-run -debug
+    [ "$status" -eq 0 ]
+    [ -n "$(find "$OUT/T1/a1-T1" -mindepth 1 -maxdepth 1 -type d -name 'maper.*')" ]
+    [ ! -e "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+    [ ! -e "$OUT/T1/a1-T1/seg/seg.nii.gz" ]
+}
+
+@test "dry run: does not write to the caches" {
+    run_maper a1 -dry-run -srccache "$BATS_TEST_TMPDIR/csrc" -tgtcache "$BATS_TEST_TMPDIR/ctgt"
+    [ "$status" -eq 0 ]
+    [ -z "$(find "$BATS_TEST_TMPDIR/csrc" "$BATS_TEST_TMPDIR/ctgt" -type f)" ]
+}
+
+@test "dry run followed by a real run: the real run does the work" {
+    run_maper a1 -dry-run
+    [ "$status" -eq 0 ]
+    : > "$STUB_LOG"
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls mirtk register)" -gt 0 ]
+    [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+    [ -s "$OUT/T1/a1-T1/seg/seg.nii.gz" ]
+}
+
+@test "empty results left by an earlier dry run are recomputed, not trusted" {
+    mkdir -p "$OUT/T1/a1-T1/seg"
+    : > "$OUT/T1/a1-T1/src-tgt.dof.gz"
+    : > "$OUT/T1/a1-T1/seg/seg.nii.gz"
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls mirtk register)" -gt 0 ]
+    [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+    [ -s "$OUT/T1/a1-T1/seg/seg.nii.gz" ]
+}
+
+@test "dry run with -atlasn: fuses existing results, and writes nothing derived from placeholders" {
+    for s in a1 a2 a3 ; do
+        run_maper "$s" -atlasn 4      # three results, four wanted: no fusion yet
+        [ "$status" -eq 0 ]
+    done
+    [ ! -e "$OUT/f3-seg-T1.nii.gz" ]
+    run_maper a1 -dry-run -atlasn 3 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+    [ -z "$(find "$OUT" -type f -empty)" ]
+    # tissue-class based output would be derived from placeholder maps
+    [ ! -e "$OUT/f3-seg-T1-tc3crisp.nii.gz" ]
+    [ -z "$(ls "$OUT" | grep tcsep)" ]
+    # the overlap with the reference needs no tissue maps
+    [ -s "$OUT/f3-seg-T1-meanjc.csv" ]
+}
