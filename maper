@@ -453,8 +453,30 @@ regprop() {  ### Registration and label propagation
     cd ..
 }
 
-d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; }
+# d2j <dice>: the Jaccard index J = D / (2 - D) that goes with a Dice coefficient
+# D between 0 and 1, with six decimals (bc truncates). seg_stats may write D in
+# scientific notation (1.5e-05), which bc cannot read: only such a value goes
+# through printf, a plain decimal is handed to bc exactly as written. Prints NA
+# and returns 1 if D is not a number between 0 and 1.
+d2j() {
+    local d=$1
+    if [[ $d =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$ ]] ; then
+        if [[ -n ${BASH_REMATCH[2]} ]] ; then d=$(LC_ALL=C printf '%.20f' "$d") ; fi
+        # printf writes inf for an exponent beyond its range
+        if [[ $d =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)$ && $(echo "$d <= 1" | bc -l) == 1 ]] ; then
+            echo "scale=6; $d / (2 - $d)" | bc -l
+            return
+        fi
+    fi
+    echo NA
+    return 1
+}
 
+# jc <reference> <labels> <individual.csv> <mean.csv>: overlap of a label image
+# with its reference as Jaccard indices, from the Dice values of seg_stats -d.
+# The lines of the seg_stats output that matter look like "L[<label>] = <dice>"
+# for each label and "M = <dice>" for the mean. Everything after the = is the
+# value as written, so that an exponent keeps its "e".
 # The body is a subshell on purpose: jc cds into a scratch directory, and the
 # caller (regprop, the fusion loop) relies on its own working directory.
 jc() (
@@ -462,15 +484,32 @@ jc() (
     local tgtseg=$1 ; shift
     local indcsv=$1 ; shift
     local avgcsv=$1 ; shift
-    local region
-    local dsc
     local tmpdir=$(mktemp -d jc.XXXX)
+    local line lhs rhs value region j mean=
     cd "$tmpdir" || exit 1
     echo %%%%% JC %%%%%
-		seg_stats "$refseg" -d "$tgtseg" | grep '=' | tr -d 'a-zL\[\]=' >ls.csv
-		( echo "region,jc" ; cat ls.csv | grep -v M | while read region dsc ; do
-				  echo $region, $(d2j $dsc) ; done ) >"$indcsv"
-		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$avgcsv"
+    seg_stats "$refseg" -d "$tgtseg" >stats.txt || msg "Warning: seg_stats failed on $tgtseg, no overlap values"
+    {
+        echo "region,jc"
+        while IFS= read -r line || [[ -n $line ]] ; do
+            [[ $line == *=* ]] || continue
+            lhs=${line%%=*}
+            read -r value _ <<<"${line#*=}"
+            if [[ $lhs == *M* ]] ; then mean=$value ; continue ; fi
+            region=${lhs//[][a-zL[:space:]]/}
+            if ! j=$(d2j "$value") ; then
+                msg "Warning: Dice value '$value' for label $region of $tgtseg is not a number between 0 and 1"
+            fi
+            echo "$region, $j"
+        done <stats.txt
+    } >"$indcsv"
+    if [[ -z $mean ]] ; then
+        msg "Warning: no mean Dice value in the seg_stats output for $tgtseg"
+        j=NA
+    elif ! j=$(d2j "$mean") ; then
+        msg "Warning: mean Dice value '$mean' for $tgtseg is not a number between 0 and 1"
+    fi
+    echo "$j" >"$avgcsv"
 )
 
 onepadgen() {

@@ -455,3 +455,118 @@ setup() { setup_common ; }
     [ "$status" -eq 0 ]
     [ "$(stub_calls seg_EM)" -eq 0 ]
 }
+
+# --- Jaccard values derived from the Dice values of seg_stats ----------------------
+
+jc_files() {
+    JC_INDIV="$OUT/T1/a1-T1/seg/seg-jc.csv"
+    JC_MEAN="$OUT/T1/a1-T1/seg/seg-meanjc.csv"
+}
+
+@test "overlap with a reference: individual and mean Jaccard files have a fixed format" {
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    # Dice 0.8, 0.7 and a mean of 0.75: J = D / (2 - D), six decimals, bc's formatting
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, .666666\n2, .538461' ]
+    [ "$(cat "$JC_MEAN")" = ".600000" ]
+}
+
+@test "Jaccard of Dice values 1 and 0 and of values in plain decimal notation" {
+    export STUB_SEG_STATS_OUT='L[1] = 1\nL[2] = 0\nL[3] = 0.000001\nL[4] = .5\nM = 1\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, 1.000000\n2, 0\n3, 0\n4, .333333' ]
+    [ "$(cat "$JC_MEAN")" = "1.000000" ]
+}
+
+@test "Dice in scientific notation gives the right Jaccard, not a value above 1" {
+    export STUB_SEG_STATS_OUT='L[1] = 1.5e-05\nL[2] = 1E-05\nL[3] = 5e-01\nL[4] = 1.0e+00\nM = 2.5e-1\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    # 1.5e-05/(2-1.5e-05) = 7.5e-06, 1e-05/(2-1e-05) = 5e-06, .5/1.5, 1/1; bc truncates at six decimals
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, .000007\n2, .000005\n3, .333333\n4, 1.000000' ]
+    # the mean line: .25/1.75
+    [ "$(cat "$JC_MEAN")" = ".142857" ]
+}
+
+@test "label numbers with several digits and extra spaces around the = are read" {
+    export STUB_SEG_STATS_OUT='L[12]  =  0.5\nL[103]=0.25\nM = 0.5\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n12, .333333\n103, .142857' ]
+}
+
+@test "a Dice value that is not a number gives NA and a warning, never a made-up number" {
+    export STUB_SEG_STATS_OUT='L[1] = nan\nL[2] = 0.5\nL[3] = 1.5\nL[4] = -0.2\nM = inf\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, NA\n2, .333333\n3, NA\n4, NA' ]
+    [ "$(cat "$JC_MEAN")" = "NA" ]
+    [[ $output == *"Warning"*"nan"* ]]
+}
+
+@test "seg_stats output without a mean line gives NA for the mean" {
+    export STUB_SEG_STATS_OUT='L[1] = 0.5\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, .333333' ]
+    [ "$(cat "$JC_MEAN")" = "NA" ]
+}
+
+@test "fused result is assessed with the same conversion" {
+    export STUB_DICE=1e-05
+    local s
+    for s in a1 a2 a3 ; do
+        run_maper "$s" -atlasn 3 -tgtlabels "seg:$FX/t-ref.nii.gz"
+        [ "$status" -eq 0 ]
+    done
+    [ "$(sed -n 2p "$OUT/f3-seg-T1-indivjc.csv")" = "1, .000005" ]
+}
+
+@test "plain decimals are used exactly as written, with no rounding before the conversion" {
+    # D = 0.666666666666666 gives J just below 0.5. Rounding D to twelve decimals
+    # first would push J just above 0.5 and change the sixth decimal (.499999 vs .500000).
+    export STUB_SEG_STATS_OUT='L[1] = 0.666666666666666\nM = 0.666666666666666\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    [ "$(sed -n 2p "$JC_INDIV")" = "1, .499999" ]
+    [ "$(cat "$JC_MEAN")" = ".499999" ]
+}
+
+@test "Dice values with huge or tiny exponents are handled, not turned into numbers" {
+    export STUB_SEG_STATS_OUT='L[1] = 1e99999\nL[2] = 1e400\nL[3] = 1e-99999\nL[4] = 1e-400\nM = 1e99999\n'
+    run_maper a1 -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    # far above 1: not a Dice value; far below any six decimals: zero
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, NA\n2, NA\n3, 0\n4, 0' ]
+    [ "$(cat "$JC_MEAN")" = "NA" ]
+}
+
+@test "Dice in scientific notation also works where the decimal separator is a comma" {
+    # printf reads and writes numbers in the locale's notation, which would reject "1.5e-05".
+    # LOCPATH has to be in the environment of the process that starts (libc reads it from
+    # there), so maper is started with env instead of exporting the variables here.
+    [ -e /usr/share/i18n/locales/de_DE ] && command -v localedef >/dev/null \
+        || skip "no locale sources to build a German locale from"
+    local loc="$BATS_TEST_TMPDIR/locale"
+    mkdir "$loc"
+    localedef -i de_DE -f UTF-8 "$loc/de_DE.UTF-8" 2>/dev/null || true
+    [ "$(env LOCPATH="$loc" LC_ALL=de_DE.UTF-8 bash -c "printf '%.1f' 1,5" 2>/dev/null)" = "1,5" ] \
+        || skip "could not build a locale with a decimal comma"
+    export STUB_SEG_STATS_OUT='L[1] = 1.5e-05\nL[2] = 0.5\nM = 2.5e-1\n'
+    build_args a1
+    run env LOCPATH="$loc" LC_ALL=de_DE.UTF-8 "$MAPER" -srcid a1 -tgtid T1 "${ARGS_NOID[@]}" \
+        -tgtlabels "seg:$FX/t-ref.nii.gz"
+    [ "$status" -eq 0 ]
+    jc_files
+    [ "$(cat "$JC_INDIV")" = $'region,jc\n1, .000007\n2, .333333' ]
+    [ "$(cat "$JC_MEAN")" = ".142857" ]
+}
