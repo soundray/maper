@@ -53,3 +53,54 @@ run_maper() {
 stub_calls() {
     grep -c "^$1${2:+ $2}\\( \\|\$\\)" "$STUB_LOG" || true
 }
+
+# --- launchlist-gen helpers -------------------------------------------------
+
+# write_csv <name> <line>...: write $FX/<name> with the given lines
+write_csv() {
+    local f=$FX/$1 ; shift
+    printf '%s\n' "$@" > "$f"
+}
+
+# Three atlases and one target, referring to the fixture images
+default_csvs() {
+    write_csv src.csv "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz" \
+        "a2, a2-mri.nii.gz, a2-mask.nii.gz, a2-seg.nii.gz" \
+        "a3, a3-mri.nii.gz, a3-mask.nii.gz, a3-seg.nii.gz"
+    write_csv tgt.csv "id, mri, brainmask" \
+        "T1, t-mri.nii.gz, t-mask.nii.gz"
+}
+
+# run_llgen [extra launchlist-gen args...]: uses src.csv/tgt.csv from $FX
+run_llgen() {
+    LL="$BATS_TEST_TMPDIR/launchlist.sh"
+    run "$LAUNCHLIST_GEN" -src-description "$FX/src.csv" -tgt-description "$FX/tgt.csv" \
+        -output-dir "$OUT" -launchlist "$LL" "$@"
+}
+
+# ll_words <n>: split line n of the launchlist into WORDS, as the shell would
+ll_words() {
+    local line
+    line=$(sed -n "${1}p" "$LL")
+    eval "WORDS=($line)"
+}
+
+# ll_values <option>: the value following each occurrence of <option> in WORDS
+ll_values() {
+    local i
+    for (( i = 0 ; i < ${#WORDS[@]} - 1 ; i++ )) ; do
+        if [[ ${WORDS[i]} == "$1" ]] ; then printf '%s\n' "${WORDS[i+1]}" ; fi
+    done
+}
+
+# ll_has <option>: is the (value-less) option present in WORDS?
+ll_has() {
+    local w
+    for w in "${WORDS[@]}" ; do
+        if [[ $w == "$1" ]] ; then return 0 ; fi
+    done
+    return 1
+}
+
+ll_count() { wc -l < "$LL" | tr -d ' ' ; }
