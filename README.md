@@ -127,6 +127,12 @@ control flow and argument handling, not registration quality.
 
     bats tests/
 
+The two Python scripts (`canonicalize-nifti.py`, `reorient2std-nifti.py`)
+have pytest tests that build their images with nibabel, so no data files
+are needed (`pip install nibabel numpy pytest`):
+
+    python3 -m pytest tests/
+
 ### Apptainer image
 
 On an x86-64 Linux system with Nix and Apptainer installed, build a MAPER Apptainer image with reproducibly pinned dependencies:

@@ -6,6 +6,31 @@ import numpy as np
 import nibabel as nib
 
 
+def same_values(a, b):
+    """True if the arrays hold the same values.
+
+    NaNs at the same positions count as equal. np.array_equal says that NaN
+    differs from NaN, so every floating point image containing a NaN failed
+    the verification of the written file. (np.array_equal(..., equal_nan=True)
+    would do, but it needs numpy 1.19.) The same function is in
+    reorient2std-nifti.py and canonicalize-nifti.py.
+    """
+    a = np.asanyarray(a)
+    b = np.asanyarray(b)
+    if np.array_equal(a, b):
+        return True
+    # Unequal. That can still be only the NaNs, which need a closer look.
+    if a.shape != b.shape:
+        return False
+    if not (np.issubdtype(a.dtype, np.inexact) and np.issubdtype(b.dtype, np.inexact)):
+        return False
+    a_nan = np.isnan(a)
+    if not (a_nan.any() and np.array_equal(a_nan, np.isnan(b))):
+        return False
+    keep = ~a_nan
+    return bool(np.array_equal(a[keep], b[keep]))
+
+
 def main():
     p = argparse.ArgumentParser(
         description="Make NIfTI qform and sform consistently use the input qform."
@@ -59,7 +84,7 @@ def main():
     # Verify what was written.
     chk = nib.load(args.output)
 
-    if not np.array_equal(raw, chk.dataobj.get_unscaled()):
+    if not same_values(raw, chk.dataobj.get_unscaled()):
         raise RuntimeError("Stored voxel values changed")
 
     cq, cqc = chk.get_qform(coded=True)
