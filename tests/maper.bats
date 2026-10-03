@@ -578,7 +578,7 @@ jc_files() {
 # test can look at them while they are half written.
 
 no_leftovers() { # the output directory holds no lock, no re-check marker, no temporary file
-    [ -z "$(find "$OUT" \( -name 'fusion-*' -o -name '*.tmp.*' \) | head -n 1)" ]
+    [ -z "$(find "$OUT" \( -name '*fusion-*' -o -name '*.tmp.*' \) | head -n 1)" ]
 }
 
 @test "fusion: a result that is published while another job holds the lock is not missed" {
@@ -740,4 +740,226 @@ working_dirs() { # the working directories maper leaves in $TMPDIR/$USER
     [ "$status" -eq 0 ]
     [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
     [ "$(working_dirs)" -eq 0 ]
+}
+
+# --- a fusion lock whose holder died --------------------------------------------------------
+#
+# A job that is killed with SIGKILL (a cluster's last resort at the wall time limit) cannot
+# clean up. Its lock must not block the fusion of that target for good: the holder refreshes
+# its lock, and a lock that has been quiet for MAPER_LOCK_TIMEOUT seconds is taken over.
+
+fast_locks() { export MAPER_LOCK_HEARTBEAT=1 MAPER_LOCK_TIMEOUT=6 ; }
+
+lock_of() { echo "$OUT/fusion-semaphore-seg-T1" ; }
+
+# a2 is in the middle of its pass, holding the lock (it was told to sit there before it lets go)
+start_holder_a2() {
+    maper_pair a2 -atlasn 3
+    STUB_LOCK_RELEASE_PAUSE=${1:-60} "${MAPER_PAIR[@]}" 3>&- >"$BATS_TEST_TMPDIR/a2.log" 2>&1 &
+    HOLDER=$!
+    wait_for "$(lock_of)"
+}
+
+@test "fusion lock: a job killed with SIGKILL while it holds the lock does not block the fusion for good" {
+    fast_locks
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    start_holder_a2
+    kill -9 "$HOLDER"
+    wait "$HOLDER" 2>/dev/null || true
+    [ -d "$(lock_of)" ]                              # nothing could clean up: the lock is stranded
+    # a3 finishes while the lock still looks alive: it leaves the work to the holder ...
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [ ! -e "$OUT/f3-seg-T1.nii.gz" ]
+    # ... and a run after the holder has been quiet for longer than the timeout takes over
+    sleep 8
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+    [ ! -e "$(lock_of)" ]
+}
+
+@test "fusion lock: a holder that is slow but alive keeps its lock beyond the timeout" {
+    fast_locks
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    start_holder_a2 12
+    sleep 8                                          # longer than MAPER_LOCK_TIMEOUT
+    run_maper a3 -atlasn 3                           # sees a lock that is old but beating
+    [ "$status" -eq 0 ]
+    [[ $output != *"taking it over"* ]]
+    wait "$HOLDER"
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]                   # the holder fused, with a3's result
+    [ "$(ls "$OUT" | grep -c '^f[0-9]*-seg-T1.nii.gz$')" -eq 1 ]
+}
+
+@test "fusion lock: a lock of another host that has gone quiet is taken over, one that is beating is not" {
+    fast_locks
+    local s
+    for s in a1 a2 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    mkdir "$(lock_of)"
+    echo "othernode:4242" > "$(lock_of)/owner"
+    run_maper a3 -atlasn 3                           # fresh: for all anyone can tell, alive
+    [ "$status" -eq 0 ]
+    [ ! -e "$OUT/f3-seg-T1.nii.gz" ]
+    [ -d "$(lock_of)" ]
+    touch -d '10 minutes ago' "$(lock_of)/owner"
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [[ $output == *"othernode:4242"* ]]              # the warning says whose lock it was
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+}
+
+@test "fusion lock: an empty lock directory left by an earlier version is taken over" {
+    local s
+    for s in a1 a2 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    mkdir "$(lock_of)"
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+}
+
+@test "fusion lock: six jobs that find the same dead lock at once: one takes over, one fusion" {
+    fast_locks
+    local k part round pids pid
+    for k in 1 2 3 4 5 6 ; do
+        for part in mri mask seg seg2 ; do cp "$FX/a1-$part.nii.gz" "$FX/s$k-$part.nii.gz" ; done
+    done
+    for round in 1 2 3 ; do
+        OUT="$BATS_TEST_TMPDIR/round$round"
+        mkdir -p "$(lock_of)"
+        echo "othernode:4242" > "$(lock_of)/owner"
+        touch -d '10 minutes ago' "$(lock_of)/owner"
+        pids=()
+        for k in 1 2 3 4 5 6 ; do
+            maper_pair "s$k" -atlasn 6
+            "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/s$k.$round.log" 2>&1 &
+            pids+=($!)
+        done
+        for pid in "${pids[@]}" ; do wait "$pid" ; done
+        [ -s "$OUT/f6-seg-T1.nii.gz" ]
+        [ "$(ls "$OUT" | grep -c '^f[0-9]*-seg-T1.nii.gz$')" -eq 1 ]
+        no_leftovers
+    done
+}
+
+@test "fusion lock: the refreshing of the lock does not hold the caller's pipe open" {
+    # a child process that kept stdout would make "| cat" wait for it
+    export MAPER_LOCK_HEARTBEAT=30
+    maper_pair a1 -atlasn 3
+    local before after
+    before=$(date +%s)
+    "${MAPER_PAIR[@]}" 2>&1 | cat > /dev/null
+    after=$(date +%s)
+    [ $(( after - before )) -lt 20 ]
+}
+
+@test "fusion lock: nothing keeps running after maper has ended" {
+    export MAPER_LOCK_HEARTBEAT=1
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    sleep 1.5
+    [ -z "$(pgrep -f "$BATS_TEST_TMPDIR" || true)" ]
+}
+
+@test "fusion lock: unusable timing settings are rejected before any work is done" {
+    export MAPER_LOCK_TIMEOUT=soon
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 1 ]
+    [[ $output == *"MAPER_LOCK_TIMEOUT"* ]]
+    [ "$(stub_calls mirtk)" -eq 0 ]
+    export MAPER_LOCK_HEARTBEAT=10 MAPER_LOCK_TIMEOUT=10
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 1 ]
+    [[ $output == *"longer than"* ]]
+    [ "$(stub_calls mirtk)" -eq 0 ]
+    [ ! -e "$OUT" ]
+}
+
+@test "fusion lock: a killed holder that nobody has reaped yet (a zombie) is still recognised as dead" {
+    # Where the parent of a job does not reap it (pid 1 of many containers), the killed holder stays
+    # a zombie, for which kill -0 still succeeds: its refreshing must stop anyway.
+    [ -r /proc/self/stat ] || skip "needs /proc to see the state of a process"
+    fast_locks
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    maper_pair a2 -atlasn 3
+    local pidfile="$BATS_TEST_TMPDIR/holder.pid"
+    STUB_LOCK_RELEASE_PAUSE=60 python3 -c '
+import subprocess, sys, time
+p = subprocess.Popen(sys.argv[2:], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+open(sys.argv[1], "w").write(str(p.pid))
+time.sleep(45)                      # never waits for the child
+' "$pidfile" "${MAPER_PAIR[@]}" &
+    local parent=$!
+    wait_for "$(lock_of)"
+    local holder
+    holder=$(cat "$pidfile")
+    kill -9 "$holder"
+    sleep 0.5
+    local stat; stat=$(< "/proc/$holder/stat")
+    [[ ${stat##*) } == Z* ]]                       # the premise: the holder is a zombie now
+    sleep 8                                          # longer than MAPER_LOCK_TIMEOUT
+    run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+    kill "$parent" 2>/dev/null || true
+}
+
+@test "fusion lock: a job that was slow to claim a dead lock leaves a fresh lock of somebody else alone" {
+    fast_locks
+    local s
+    for s in a1 a2 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    mkdir "$(lock_of)"
+    echo "deadnode:1" > "$(lock_of)/owner"
+    touch -d '10 minutes ago' "$(lock_of)/owner"
+    maper_pair a3 -atlasn 3
+    STUB_BREAK_PAUSE=3 "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/a3.log" 2>&1 &
+    local slow=$!
+    wait_for "$BATS_TEST_TMPDIR/break-paused"        # a3 has found the lock dead, and is about to claim it
+    rm -rf "$(lock_of)"                              # in the meantime somebody else took it over ...
+    mkdir "$(lock_of)"
+    echo "othernode:7" > "$(lock_of)/owner"          # ... and is alive
+    wait "$slow"
+    [ "$(cat "$(lock_of)/owner")" = "othernode:7" ]
+    [ ! -e "$OUT/f3-seg-T1.nii.gz" ]
+    [[ $(< "$BATS_TEST_TMPDIR/a3.log") != *"taking it over"* ]]
+}
+
+@test "fusion lock: a lock that is being released is not taken over from under the job releasing it" {
+    fast_locks
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    maper_pair a2 -atlasn 3
+    STUB_LOCK_HALFWAY_PAUSE=3 "${MAPER_PAIR[@]}" >"$BATS_TEST_TMPDIR/a2.log" 2>&1 &
+    local releasing=$!
+    # a2 is done with its pass; wherever it is while letting go, a3 comes in now
+    until [ -e "$BATS_TEST_TMPDIR/halfway-paused" ] || ! kill -0 "$releasing" 2>/dev/null ; do sleep 0.1 ; done
+    STUB_LOCK_RELEASE_PAUSE=5 run_maper a3 -atlasn 3
+    [ "$status" -eq 0 ]
+    wait "$releasing"                                # a2 must not fail because a3 holds the lock by now
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+    [ "$(ls "$OUT" | grep -c '^f[0-9]*-seg-T1.nii.gz$')" -eq 1 ]
+    [ ! -e "$(lock_of)" ]
+}
+
+@test "fusion lock: a job that is terminated (SIGTERM) lets go of its lock and ends its refreshing at once" {
+    fast_locks
+    run_maper a1 -atlasn 3
+    [ "$status" -eq 0 ]
+    start_holder_a2
+    kill -TERM "$HOLDER"
+    wait "$HOLDER" 2>/dev/null || true
+    [ ! -e "$(lock_of)" ]
+    [ -z "$(pgrep -f "maper -srcid.*$BATS_TEST_TMPDIR" || true)" ]   # no refreshing left behind
 }

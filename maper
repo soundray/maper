@@ -229,6 +229,14 @@ require_file -tpn "$tpn"
 
 export OMP_NUM_THREADS=$threads
 
+# Timing of the fusion lock, see "The fusion lock"
+lock_heartbeat=${MAPER_LOCK_HEARTBEAT:-15}
+lock_timeout=${MAPER_LOCK_TIMEOUT:-300}
+[[ $lock_heartbeat =~ ^[1-9][0-9]*$ ]] || die "MAPER_LOCK_HEARTBEAT must be a positive number of seconds, got '$lock_heartbeat'"
+[[ $lock_timeout =~ ^[1-9][0-9]*$ ]] || die "MAPER_LOCK_TIMEOUT must be a positive number of seconds, got '$lock_timeout'"
+[[ $lock_timeout -gt $(( 2 * lock_heartbeat )) ]] \
+    || die "MAPER_LOCK_TIMEOUT ($lock_timeout) must be longer than twice MAPER_LOCK_HEARTBEAT ($lock_heartbeat)"
+
 [[ $notc3 == 1 ]] && notc=1
 
 [[ $notc == 1 && $(( tc3out + tc3crisp + tc3only )) -gt 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
@@ -651,11 +659,135 @@ if [[ -n $tgtcache ]] ; then
 fi
 
 td=$(tempdir)
+### The fusion lock
+#
+# Of all the jobs for a target only one at a time may fuse. The lock is a directory
+# that is made complete -- it holds the file "owner", host:pid of the holder --
+# under a temporary name and then renamed into place, so nobody ever sees one
+# without an owner, and the rename fails while the lock exists. (The rename does
+# replace an empty directory: the lock of an earlier version is taken over so.)
+# Letting go is a rename as well, see drop_lock.
+#
+# A job killed with SIGKILL (the last resort of a cluster at the wall time limit)
+# cannot release its lock, and the lock would block the fusion of the target for
+# good. So the holder touches its owner file every $lock_heartbeat seconds, and a
+# lock whose owner file has not been touched for $lock_timeout seconds is taken
+# over. Where the holder runs does not matter: the age is the difference of two
+# modification times that the file system itself gave, the owner file's and that
+# of a probe file made on the spot, so clocks of different hosts do not enter.
+# MAPER_LOCK_HEARTBEAT and MAPER_LOCK_TIMEOUT (seconds) change the defaults.
+#
+# A job that finds a dead holder's lock before the timeout has passed cannot
+# know that the holder is dead and leaves the work to it, as it would for a
+# living one. The next run for the target after the timeout, for instance of any
+# one pair that was done before, takes the lock over and fuses.
+
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null ; }
+
+# file_age <file>: seconds since the file was modified, by the clock of its file system
+file_age() {
+    local probe now modified
+    probe=$(mktemp "$baseoutdir/.fusion-probe.XXXXXX") || return 1
+    now=$(mtime "$probe")
+    rm -f "$probe"
+    modified=$(mtime "$1") || return 1
+    [[ -n $now && -n $modified ]] || return 1
+    echo $(( now - modified ))
+}
+
+# alive <pid>: does the process exist, and is it not a zombie waiting to be reaped?
+alive() {
+    local stat
+    kill -0 "$1" 2>/dev/null || return 1
+    if [[ -r /proc/$1/stat ]] ; then
+        stat=$(< "/proc/$1/stat")
+        [[ ${stat##*) } != Z* ]]
+    fi
+}
+
+# try_lock <lock>: become the holder if there is none
+try_lock() {
+    local stage
+    stage=$(mktemp -d "$baseoutdir/.fusion-tmp.XXXXXX") || die "Cannot create files in $baseoutdir"
+    printf '%s:%s\n' "${HOSTNAME:-$(uname -n)}" "$$" > "$stage/owner" || die "Cannot create files in $baseoutdir"
+    if mv -T "$stage" "$1" 2>/dev/null ; then return 0 ; fi
+    rm -rf "$stage"
+    return 1
+}
+
+# drop_lock <lock>: remove the lock in one step. Emptying it first and then removing the
+# directory would leave a moment with an empty directory, which try_lock takes over; the
+# removal that follows would then fail, or remove the new holder's lock.
+drop_lock() {
+    local gone
+    gone=$(mktemp -d "$baseoutdir/.fusion-gone.XXXXXX") || { rm -rf "$1" ; return 0 ; }
+    mv -T "$1" "$gone" 2>/dev/null || true
+    rm -rf "$gone"
+}
+
+# break_stale_lock <lock>: remove the lock if its holder has been quiet for $lock_timeout
+# seconds. Several jobs may notice at the same time; one at a time may remove it, and
+# each looks again once it is its turn -- else a slow job could remove the lock of
+# the job that had taken over before it.
+break_stale_lock() {
+    local lock=$1 breaker=$1.break age owner
+    [[ -e $lock/owner ]] || return 1
+    age=$(file_age "$lock/owner") || return 1
+    if [[ $age -le $lock_timeout ]] ; then
+        if [[ $age -gt $(( 2 * lock_heartbeat )) ]] ; then
+            msg "The fusion lock $lock was last heard of ${age}s ago from $(cat "$lock/owner" 2>/dev/null): left to it, taken over after ${lock_timeout}s"
+        fi
+        return 1
+    fi
+    if ! mkdir "$breaker" 2>/dev/null ; then
+        # someone else is removing it -- or died doing so, which the age of the claim shows
+        age=$(file_age "$breaker") && [[ $age -gt 60 ]] && rmdir "$breaker" 2>/dev/null
+        return 1
+    fi
+    owner=$(cat "$lock/owner" 2>/dev/null) || owner=unknown
+    if age=$(file_age "$lock/owner") && [[ $age -gt $lock_timeout ]] ; then
+        msg "Warning: the fusion lock $lock of $owner has been quiet for ${age}s: taking it over"
+        drop_lock "$lock"
+        rmdir "$breaker"
+        return 0
+    fi
+    rmdir "$breaker"
+    return 1
+}
+
+# While the lock is held, a background process touches the owner file. It ends
+# when this process does, however that happens, so that a killed holder's lock
+# goes quiet. It must not keep the caller's pipes open.
+start_heartbeat() {
+    (
+        trap 'kill "$sleeper" 2>/dev/null ; exit 0' TERM
+        while true ; do
+            sleep "$lock_heartbeat" & sleeper=$!
+            wait "$sleeper"
+            alive "$$" || exit 0
+            touch -c "$1/owner" 2>/dev/null
+        done
+    ) </dev/null >/dev/null 2>&1 &
+    heartbeat_pid=$!
+}
+
+stop_heartbeat() {
+    if [[ -n $heartbeat_pid ]] ; then
+        kill "$heartbeat_pid" 2>/dev/null || true
+        wait "$heartbeat_pid" 2>/dev/null || true
+        heartbeat_pid=
+    fi
+    return 0
+}
+
 # A fusion lock is held while fusing; release it on any exit, including a
-# set -e abort, or no later job can ever fuse this target again.
+# set -e abort or SIGTERM. Only SIGKILL cannot be answered; for that case the
+# lock is refreshed while it is held and can be taken over, see "The fusion lock".
 fusion_lock=
+heartbeat_pid=
 on_exit() {
-    [[ -n $fusion_lock ]] && rm -rf "$fusion_lock"
+    stop_heartbeat
+    [[ -n $fusion_lock ]] && drop_lock "$fusion_lock"
     finish
 }
 trap on_exit EXIT
@@ -784,8 +916,8 @@ fuse_if_ready() {
 # Of all the jobs for a target, the last one to deliver its results has to do the
 # fusion, and only one job may do it. Each job therefore
 #   1. leaves a marker: "my results are in place, somebody has to look",
-#   2. tries to take the lock (mkdir is atomic); if another job holds it, it is
-#      done -- the holder is responsible for the marker, see 4,
+#   2. tries to take the lock (see "The fusion lock"), also over a dead holder's; if
+#      another job holds it, it is done -- the holder is responsible for the marker, see 4,
 #   3. as lock holder removes the marker, and only then counts the results; every
 #      result published before the marker was made is therefore counted,
 #   4. lets go of the lock and looks at the marker again. If one has appeared in the
@@ -797,11 +929,13 @@ if [[ $atlasn -ge 3 ]] ; then
         lock="$baseoutdir/fusion-semaphore-$i-$tgtid"
         pending="$baseoutdir/fusion-pending-$i-$tgtid"
         : > "$pending"
-        while mkdir "$lock" 2>/dev/null ; do
+        while try_lock "$lock" || { break_stale_lock "$lock" && try_lock "$lock" ; } ; do
             fusion_lock=$lock
+            start_heartbeat "$lock"
             rm -f "$pending"
             fuse_if_ready "$i"
-            rmdir "$lock"
+            drop_lock "$lock"
+            stop_heartbeat
             fusion_lock=
             [[ -e $pending ]] || break
         done

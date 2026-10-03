@@ -115,6 +115,22 @@ commands, if MIRTK is built with TBB support. This is less
 memory-intensive than shell-level parallelization. Use the `-threads` 
 option to `launchlist-gen` and `maper`.
 
+### Parallel runs and killed jobs
+
+Parallel `maper` jobs that write to the same output directory fuse a
+target's results once, after the last of them has finished. The job that
+does the fusion holds a lock directory (`fusion-semaphore-*`) and touches
+its `owner` file every `MAPER_LOCK_HEARTBEAT` seconds (default 15). If
+that job is killed outright (SIGKILL, power loss, an OOM kill), the lock
+stays behind, but the next `maper` run that finds it quiet for longer than
+`MAPER_LOCK_TIMEOUT` seconds (default 300) takes it over and carries on.
+The timeout must be longer than twice the heartbeat. Normal exits and
+SIGTERM release the lock themselves.
+
+If every job of a target finished while a dead job's lock still looked
+alive, nobody is left to fuse: re-run any one `maper` command of that
+target after the timeout has passed (it skips what is already done).
+
 Feedback welcome at metrimorphics@soundray.de
 
 ### Tests
