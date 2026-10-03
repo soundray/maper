@@ -284,7 +284,7 @@ tc3() { ### Tissue classification
     cd $tdl
 
     if [[ -n $dryrun ]] ; then
-	      ( cd $outdir
+	      ( cd "$outdir"
 	        for i in csf gm wm gmwm wmr wml gmwmr gmwml crisp-csf crisp-gm crisp-wm crisp tc3 ; do
 		          touch $i.nii.gz
 	        done
@@ -467,7 +467,7 @@ jc() (
     local tmpdir=$(mktemp -d jc.XXXX)
     cd "$tmpdir" || exit 1
     echo %%%%% JC %%%%%
-		seg_stats "$refseg" -d "$tgtseg" | grep = | tr -d 'a-zL\[\]=' >ls.csv
+		seg_stats "$refseg" -d "$tgtseg" | grep '=' | tr -d 'a-zL\[\]=' >ls.csv
 		( echo "region,jc" ; cat ls.csv | grep -v M | while read region dsc ; do
 				  echo $region, $(d2j $dsc) ; done ) >"$indcsv"
 		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$avgcsv"
@@ -547,7 +547,7 @@ mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
 
 if [[ -n $srccache ]] ; then
     srccache_=$srccache/$srcid
-    if mkdir -p $srccache_ ; then
+    if mkdir -p "$srccache_" ; then
 	msg "Source cache $srccache/$srcid okay"
     else
 	msg "Could not create source cache $srccache/$srcid -- not caching source intermediates"
@@ -557,7 +557,7 @@ fi
 
 if [[ -n $tgtcache ]] ; then
     tgtcache_=$tgtcache/$tgtid
-    if mkdir -p $tgtcache_ ; then
+    if mkdir -p "$tgtcache_" ; then
 	msg "Target cache $tgtcache/$tgtid okay"
     else
 	msg "Could not create target cache $tgtcache/$tgtid -- not caching target intermediates"
@@ -579,9 +579,9 @@ touch null
 cp "$pdir"/neutral.dof.gz .
 mkdir -p tgt src regout/seg
 outdof="$outdir"/src-tgt.dof.gz
-[[ -e $outdof ]] && cp $outdof regout/
+[[ -e $outdof ]] && cp "$outdof" regout/
 set -- "$outdir"/seg/*
-[[ -e $1 ]] && cp $@ regout/seg/
+[[ -e $1 ]] && cp "$@" regout/seg/
 
 cp "$srcop" src/onepad.nii.gz
 cp "$srcmri" src/mri.nii.gz
@@ -603,7 +603,7 @@ onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz tgt
 
 if [[ -z $notc ]] ; then
     set --
-    [[ -n $srccache_ ]] && set -- $srccache_/*
+    [[ -n $srccache_ ]] && set -- "$srccache_"/*
     if [[ $# -gt 8 ]] ; then
 	cp "$@" src
     else
@@ -613,7 +613,7 @@ if [[ -z $notc ]] ; then
     fi
 
     set --
-    [[ -n $tgtcache_ ]] && set -- $tgtcache_/*
+    [[ -n $tgtcache_ ]] && set -- "$tgtcache_"/*
     if [[ $# -gt 8 ]] ; then
 	cp "$@" tgt
     else
@@ -658,8 +658,8 @@ fuse() {
     fused="$1" ; shift
     nfuse="$1" ; shift
     first="$1" ; shift
-    seg_maths "$first" -merge $[nfuse-1] 4 $* merged.nii
-    seg_LabFusion -in merged.nii -MV -out $fused
+    seg_maths "$first" -merge $(( nfuse - 1 )) 4 "$@" merged.nii
+    seg_LabFusion -in merged.nii -MV -out "$fused"
     rm merged.nii
 }
 
@@ -676,7 +676,7 @@ if [[ $atlasn -ge 3 ]] ; then
 		            thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
                 #
 		            if [[ ! -s $thisseg.nii.gz ]] ; then
-		                fuse "$thisseg".nii.gz $# $*
+		                fuse "$thisseg".nii.gz $# "$@"
                     #
 		                # Generate tissue-class separated output
 		                if [[ -z $notc ]] ; then

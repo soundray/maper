@@ -413,3 +413,45 @@ setup() { setup_common ; }
     # the overlap with the reference needs no tissue maps
     [ -s "$OUT/f3-seg-T1-meanjc.csv" ]
 }
+
+# --- directories whose names contain spaces ----------------------------------------
+
+@test "output directory with spaces: a re-run over existing results works" {
+    OUT="$BATS_TEST_TMPDIR/out dir with space"
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+    : > "$STUB_LOG"
+    run_maper a1
+    [ "$status" -eq 0 ]
+    # the existing results were found and reused, not recomputed
+    [ "$(stub_calls mirtk register)" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/seg/seg.nii.gz" ]
+}
+
+@test "output directory with spaces: the fused result is written where it belongs" {
+    OUT="$BATS_TEST_TMPDIR/out dir with space"
+    local s
+    for s in a1 a2 a3 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    [ -s "$OUT/f3-seg-T1.nii.gz" ]
+    # and nothing was written to the path as split at the spaces
+    [ ! -e "$BATS_TEST_TMPDIR/out" ]
+    [ "$(grep -c -- '-out ' "$STUB_LOG")" -ge 1 ]
+    grep -q -- "-out $OUT/f3-seg-T1.nii.gz\$" "$STUB_LOG"
+}
+
+@test "cache directories with spaces are created, filled and reused" {
+    local c="$BATS_TEST_TMPDIR/cache dir"
+    mkdir "$c"
+    run_maper a1 -srccache "$c/src" -tgtcache "$c/tgt"
+    [ "$status" -eq 0 ]
+    [ -s "$c/src/a1/csf.nii.gz" ]
+    [ -s "$c/tgt/T1/csf.nii.gz" ]
+    : > "$STUB_LOG"
+    run_maper a1 -output-dir "$BATS_TEST_TMPDIR/out2" -srccache "$c/src" -tgtcache "$c/tgt"
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls seg_EM)" -eq 0 ]
+}
