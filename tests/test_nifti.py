@@ -8,6 +8,7 @@ import itertools
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import nibabel as nib
@@ -27,9 +28,9 @@ def load_module(path):
     return module
 
 
-def run_script(script, *args):
+def run_script(script, *args, cwd=None):
     return subprocess.run(
-        [sys.executable, str(script), *map(str, args)], capture_output=True, text=True
+        [sys.executable, str(script), *map(str, args)], capture_output=True, text=True, cwd=cwd
     )
 
 
@@ -382,3 +383,291 @@ def test_reorient_refuses_an_undefined_form(tmp_path, which, message):
     res = run_script(REORIENT, src, tmp_path / "out.nii.gz")
     assert res.returncode != 0
     assert message in res.stderr
+
+
+# --- the output is all or nothing --------------------------------------------------------
+#
+# The image (and the side file) is written under a hidden temporary name next to its
+# destination, verified there, and only then moved into place. A run that fails, is
+# interrupted or runs out of disk space leaves nothing at the destination and nothing
+# else behind; an earlier output stays as it was.
+
+SIDE_OPTION = {CANON: "--geometry-json", REORIENT: "--json"}
+
+
+def listing(directory):
+    return sorted(p.name for p in directory.iterdir())
+
+
+def force(script):
+    """reorient2std refuses to overwrite unless told to; canonicalize overwrites."""
+    return ["--force"] if script == REORIENT else []
+
+
+def half_written_then_fail(original_save):
+    """A save that runs out of disk space: half of the file is on disk, then an error."""
+
+    def save(img, fname, *args, **kwargs):
+        original_save(img, fname, *args, **kwargs)
+        size = Path(fname).stat().st_size
+        with open(fname, "r+b") as f:
+            f.truncate(size // 2)
+        raise OSError(28, "No space left on device")
+
+    return save
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_failed_verification_leaves_no_output(tmp_path, monkeypatch, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError, match="(?i)voxel values"):
+        run_in_process(monkeypatch, script, src, tmp_path / "out.nii.gz")
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_failed_verification_leaves_no_side_file(tmp_path, monkeypatch, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError):
+        run_in_process(
+            monkeypatch, script, src, tmp_path / "out.nii.gz", SIDE_OPTION[script], tmp_path / "side.json"
+        )
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_failed_verification_keeps_the_previous_output(tmp_path, monkeypatch, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = write_nifti(tmp_path / "out.nii.gz", volume(np.uint8), make_affine(zooms=(2, 2, 2)))
+    side = tmp_path / "side.json"
+    side.write_text("previous")
+    before = (out.read_bytes(), side.read_text())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError):
+        run_in_process(monkeypatch, script, src, out, SIDE_OPTION[script], side, *force(script))
+    assert (out.read_bytes(), side.read_text()) == before
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz", "side.json"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_running_out_of_disk_space_leaves_nothing(tmp_path, monkeypatch, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    monkeypatch.setattr(nib, "save", half_written_then_fail(nib.save))
+    with pytest.raises(OSError, match="No space left"):
+        run_in_process(monkeypatch, script, src, tmp_path / "out.nii.gz")
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_a_failed_conversion_in_place_leaves_the_input_untouched(tmp_path, monkeypatch, script):
+    src = write_nifti(tmp_path / "scan.nii.gz", volume(np.int16), make_affine())
+    before = src.read_bytes()
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError):
+        run_in_process(monkeypatch, script, src, src, *force(script))
+    assert src.read_bytes() == before
+    assert listing(tmp_path) == ["scan.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_converting_in_place_works(tmp_path, script):
+    data = volume(np.int16)
+    src = write_nifti(tmp_path / "scan.nii.gz", data, make_affine())
+    res = run_script(script, src, src, *force(script))
+    assert res.returncode == 0, res.stderr
+    assert listing(tmp_path) == ["scan.nii.gz"]
+    expected = data if script == CANON else data[::-1, ::-1, :]
+    assert np.array_equal(raw(src), expected)
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_only_the_requested_files_remain_after_success(tmp_path, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    res = run_script(script, src, tmp_path / "out.nii.gz", SIDE_OPTION[script], tmp_path / "side.json")
+    assert res.returncode == 0, res.stderr
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz", "side.json"]
+    assert json.loads((tmp_path / "side.json").read_text())
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_bare_file_names_in_the_current_directory(tmp_path, script):
+    write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    res = run_script(script, "in.nii.gz", "out.nii.gz", SIDE_OPTION[script], "side.json", cwd=tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz", "side.json"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+@pytest.mark.parametrize("name", ["out.nii.gz", "out.nii", "scan.v2.nii.gz"])
+def test_the_image_is_first_written_to_a_hidden_file_of_the_same_kind(tmp_path, monkeypatch, script, name):
+    """The temporary name keeps the extension (nibabel chooses the format by it) and is
+    hidden, so that a glob such as *.nii.gz does not pick up an unfinished file."""
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / name
+    names = []
+    original_save = nib.save
+
+    def spy(img, fname, *args, **kwargs):
+        names.append(Path(fname))
+        return original_save(img, fname, *args, **kwargs)
+
+    monkeypatch.setattr(nib, "save", spy)
+    run_in_process(monkeypatch, script, src, out)
+    assert len(names) == 1
+    written = names[0]
+    assert written != out
+    assert written.parent == out.parent
+    assert written.name.startswith(".")
+    assert written.name.endswith("".join(out.suffixes))
+    assert listing(tmp_path) == sorted(["in.nii.gz", name])
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_being_terminated_leaves_nothing(tmp_path, script):
+    """A cluster stops a job that overruns with SIGTERM before it kills it."""
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+    ready = tmp_path / "ready"
+    driver = f"""
+import importlib.util, sys, time
+import nibabel as nib
+spec = importlib.util.spec_from_file_location("script", {str(script)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original_save = nib.save
+def slow_save(img, fname, *args, **kwargs):
+    original_save(img, fname, *args, **kwargs)   # the whole file is on disk ...
+    open({str(ready)!r}, "w").close()
+    time.sleep(60)                               # ... but the job is not finished
+nib.save = slow_save
+sys.argv = [{script.name!r}, {str(src)!r}, {str(out)!r}]
+module.main()
+"""
+    proc = subprocess.Popen([sys.executable, "-c", driver], stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(200):
+            if ready.exists() or proc.poll() is not None:
+                break
+            time.sleep(0.05)
+        assert ready.exists(), "the script never got as far as saving"
+        proc.terminate()
+        proc.wait(timeout=20)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode != 0
+    assert not out.exists()
+    assert listing(tmp_path) == ["in.nii.gz", "ready"]
+
+
+def test_canonicalize_with_no_qform_writes_nothing(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine(), qcode=0)
+    res = run_script(CANON, src, tmp_path / "out.nii.gz", "--geometry-json", tmp_path / "side.json")
+    assert res.returncode != 0
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+def test_reorient_refusing_to_overwrite_changes_nothing(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+    out.write_text("existing")
+    res = run_script(REORIENT, src, out, "--json", tmp_path / "side.json")
+    assert res.returncode != 0
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz"]
+    assert out.read_text() == "existing"
+
+
+# --- errors name the file the user asked for, not the temporary one -----------------------
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_a_missing_output_directory_is_reported_with_the_requested_path(tmp_path, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "no" / "such" / "out.nii.gz"
+    res = run_script(script, src, out)
+    assert res.returncode != 0
+    assert str(out) in res.stderr
+    assert ".tmp" not in res.stderr
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_a_write_error_names_the_requested_path(tmp_path, monkeypatch, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+
+    def failing_save(img, fname, *args, **kwargs):
+        raise OSError(13, "Permission denied", str(fname))
+
+    monkeypatch.setattr(nib, "save", failing_save)
+    with pytest.raises(OSError) as info:
+        run_in_process(monkeypatch, script, src, out)
+    assert str(out) in str(info.value)
+    assert ".tmp" not in str(info.value)
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_failing_to_move_the_output_into_place_names_only_the_requested_path(tmp_path, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+    out.mkdir()                              # a directory in the way: the final rename fails
+    res = run_script(script, src, out, *force(script))
+    assert res.returncode != 0
+    assert str(out) in res.stderr
+    assert ".tmp" not in res.stderr
+    assert " -> " not in res.stderr
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz"]
+
+
+def test_the_helpers_shared_by_both_scripts_are_identical():
+    """The scripts are installed one by one, so the helpers are copied, not imported."""
+    import ast
+
+    def definitions(script):
+        text = script.read_text()
+        return {
+            node.name: ast.get_source_segment(text, node)
+            for node in ast.parse(text).body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        }
+
+    canon, reorient = definitions(CANON), definitions(REORIENT)
+    for name in ("temporary_name", "Staged", "staged_outputs", "same_values"):
+        assert name in canon and name in reorient, name
+        assert canon[name] == reorient[name], name
+
+
+# --- overwriting behaves as before -------------------------------------------------------
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_an_output_that_is_a_symlink_is_written_through(tmp_path, script):
+    data = volume(np.int16)
+    src = write_nifti(tmp_path / "in.nii.gz", data, make_affine())
+    real = tmp_path / "real.nii.gz"
+    real.write_text("placeholder")
+    link = tmp_path / "link.nii.gz"
+    link.symlink_to(real.name)
+    res = run_script(script, src, link, *force(script))
+    assert res.returncode == 0, res.stderr
+    assert link.is_symlink()
+    expected = data if script == CANON else data[::-1, ::-1, :]
+    assert np.array_equal(raw(real), expected)
+    assert listing(tmp_path) == ["in.nii.gz", "link.nii.gz", "real.nii.gz"]
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_overwriting_keeps_the_permissions_of_the_file(tmp_path, script):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = write_nifti(tmp_path / "out.nii.gz", volume(np.int16), make_affine())
+    side = tmp_path / "side.json"
+    side.write_text("{}")
+    out.chmod(0o664)
+    side.chmod(0o660)
+    res = run_script(script, src, out, SIDE_OPTION[script], side, *force(script))
+    assert res.returncode == 0, res.stderr
+    assert out.stat().st_mode & 0o777 == 0o664
+    assert side.stat().st_mode & 0o777 == 0o660
