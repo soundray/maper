@@ -13,6 +13,8 @@ setup() { setup_common ; default_csvs ; }
 }
 
 @test "line carries ids, atlas count, output directory and threads" {
+    # launchlist-gen refuses more threads than this machine has processors
+    [ "$(nproc)" -ge 2 ] || skip "needs at least two processors"
     run_llgen -threads 2
     [ "$status" -eq 0 ]
     ll_words 1

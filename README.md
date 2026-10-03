@@ -129,9 +129,13 @@ control flow and argument handling, not registration quality.
 
 The two Python scripts (`canonicalize-nifti.py`, `reorient2std-nifti.py`)
 have pytest tests that build their images with nibabel, so no data files
-are needed (`pip install nibabel numpy pytest`):
+are needed (`pip install -r tests/requirements.txt`):
 
     python3 -m pytest tests/
+
+`tests/lint.sh` runs shellcheck over all shell scripts and fails on
+error-level findings. The three checks run on GitHub Actions for every push
+and pull request (`.github/workflows/tests.yml`).
 
 ### Apptainer image
 
