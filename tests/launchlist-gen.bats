@@ -490,3 +490,48 @@ setup() { setup_common ; default_csvs ; }
     run_llgen
     cmp "$LL" "$BATS_TEST_TMPDIR/first.sh"
 }
+
+# --- -loocv with targets that are not among the sources -------------------------
+
+@test "-loocv: -atlasn is per target; only a target that is itself an atlas loses one" {
+    write_csv tgt.csv "id, mri, brainmask" \
+        "a2, a2-mri.nii.gz, a2-mask.nii.gz" \
+        "T1, t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen -loocv
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 5 ]          # a2 against a1, a3; T1 against a1, a2, a3
+    local n
+    for n in 1 2 ; do
+        ll_words "$n"
+        [ "$(ll_values -tgtid)" = a2 ]
+        [ "$(ll_values -atlasn)" = 2 ]
+    done
+    for n in 3 4 5 ; do
+        ll_words "$n"
+        [ "$(ll_values -tgtid)" = T1 ]
+        [ "$(ll_values -atlasn)" = 3 ]
+    done
+}
+
+@test "without -loocv every target gets all atlases and the same -atlasn" {
+    write_csv tgt.csv "id, mri, brainmask" \
+        "a2, a2-mri.nii.gz, a2-mask.nii.gz" \
+        "T1, t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 6 ]
+    local n
+    for n in 1 2 3 4 5 6 ; do
+        ll_words "$n"
+        [ "$(ll_values -atlasn)" = 3 ]
+    done
+}
+
+@test "-loocv with nothing left to pair warns about the empty launchlist" {
+    write_csv src.csv "id, mri, brainmask, seg" "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz"
+    write_csv tgt.csv "id, mri, brainmask" "a1, a1-mri.nii.gz, a1-mask.nii.gz"
+    run_llgen -loocv
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 0 ]
+    [[ $output == *"no source/target pairs"* ]]
+}

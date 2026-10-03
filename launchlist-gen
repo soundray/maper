@@ -252,8 +252,8 @@ fi
 
 ### Launchlist
 
-atlasn=${#src_ids[@]}
-if [[ -n $loocv ]] ; then atlasn=$(( atlasn - 1 )) ; fi
+declare -A is_atlas=()
+for id in "${src_ids[@]}" ; do is_atlas[$id]=1 ; done
 
 # emit_pair <target index> <source index>: one launchlist line
 emit_pair() {
@@ -270,11 +270,19 @@ emit_pair() {
 
 ( : >>"$launchlist" ) 2>/dev/null || die "Could not write to $launchlist"
 
+npairs=0
 {
     for t in "${!tgt_ids[@]}" ; do
+        # The number of atlases that will contribute to this target: with
+        # -loocv an image that is itself an atlas does not register to itself.
+        atlasn=${#src_ids[@]}
+        if [[ -n $loocv && -n ${is_atlas[${tgt_ids[t]}]} ]] ; then atlasn=$(( atlasn - 1 )) ; fi
         for s in "${!src_ids[@]}" ; do
             if [[ -n $loocv && ${tgt_ids[t]} == "${src_ids[s]}" ]] ; then continue ; fi
             emit_pair "$t" "$s"
+            npairs=$(( npairs + 1 ))
         done
     done
 } >"$launchlist"
+
+if [[ $npairs -eq 0 ]] ; then msg "Warning: no source/target pairs, the launchlist is empty" ; fi
