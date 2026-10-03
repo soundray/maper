@@ -46,3 +46,10 @@ run_maper() {
     build_args "$s"
     run "$MAPER" -srcid "$s" -tgtid T1 "${ARGS_NOID[@]}" "$@"
 }
+
+# stub_calls <tool> [subcommand]: number of logged calls to a stubbed tool.
+# (Assert with [ "$(stub_calls seg_EM)" -eq 0 ]; a negated "! grep" does not
+# fail a bats test, because bash ignores a negated command for errexit.)
+stub_calls() {
+    grep -c "^$1${2:+ $2}\\( \\|\$\\)" "$STUB_LOG" || true
+}

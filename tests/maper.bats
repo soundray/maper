@@ -283,3 +283,52 @@ setup() { setup_common ; }
     [ "$status" -ne 0 ]
     [[ $output == *"-notc"*"incompatible"* ]]
 }
+
+# --- -tc3only and the tissue-class caches ----------------------------------
+
+@test "-tc3only: stops after tissue classification, without registration" {
+    run_maper a1 -tc3only
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls mirtk register)" -eq 0 ]
+    [ ! -e "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+}
+
+@test "-tc3only: populates the source and target caches" {
+    run_maper a1 -tc3only -srccache "$BATS_TEST_TMPDIR/csrc" -tgtcache "$BATS_TEST_TMPDIR/ctgt"
+    [ "$status" -eq 0 ]
+    [ -s "$BATS_TEST_TMPDIR/csrc/a1/csf.nii.gz" ]
+    [ -s "$BATS_TEST_TMPDIR/csrc/a1/tc3raw.nii.gz" ]
+    [ -s "$BATS_TEST_TMPDIR/ctgt/T1/crisp.nii.gz" ]
+}
+
+@test "-tc3only: caches hold the same files as after a full run" {
+    run_maper a1 -tc3only -srccache "$BATS_TEST_TMPDIR/only-s" -tgtcache "$BATS_TEST_TMPDIR/only-t"
+    [ "$status" -eq 0 ]
+    run_maper a1 -output-dir "$BATS_TEST_TMPDIR/out-full" \
+        -srccache "$BATS_TEST_TMPDIR/full-s" -tgtcache "$BATS_TEST_TMPDIR/full-t"
+    [ "$status" -eq 0 ]
+    [ -n "$(ls "$BATS_TEST_TMPDIR/full-s/a1")" ]
+    diff <(ls "$BATS_TEST_TMPDIR/only-s/a1") <(ls "$BATS_TEST_TMPDIR/full-s/a1")
+    diff <(ls "$BATS_TEST_TMPDIR/only-t/T1") <(ls "$BATS_TEST_TMPDIR/full-t/T1")
+}
+
+@test "-tc3only: a later full run reuses the cached tissue classes" {
+    run_maper a1 -tc3only -srccache "$BATS_TEST_TMPDIR/csrc" -tgtcache "$BATS_TEST_TMPDIR/ctgt"
+    [ "$status" -eq 0 ]
+    : > "$STUB_LOG"
+    run_maper a1 -srccache "$BATS_TEST_TMPDIR/csrc" -tgtcache "$BATS_TEST_TMPDIR/ctgt"
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls seg_EM)" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+}
+
+@test "full run: fills the caches and the next run reuses them" {
+    run_maper a1 -srccache "$BATS_TEST_TMPDIR/csrc" -tgtcache "$BATS_TEST_TMPDIR/ctgt"
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls seg_EM)" -gt 0 ]
+    : > "$STUB_LOG"
+    run_maper a1 -output-dir "$BATS_TEST_TMPDIR/out2" \
+        -srccache "$BATS_TEST_TMPDIR/csrc" -tgtcache "$BATS_TEST_TMPDIR/ctgt"
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls seg_EM)" -eq 0 ]
+}
