@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
-pdir=$(dirname "$ppath")
-pname=$(basename "$ppath")
-
 set -e 
 
 cat <<EOF 

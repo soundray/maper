@@ -706,3 +706,38 @@ entries_of() { # the number of entries of a directory, if it exists
     [ -s "$BATS_TEST_TMPDIR/out-x/T1/a1-T1/src-tgt.dof.gz" ]
     [ -s "$BATS_TEST_TMPDIR/out-y/T1/a1-T1/src-tgt.dof.gz" ]
 }
+
+# --- the working directory ------------------------------------------------------------
+
+working_dirs() { # the working directories maper leaves in $TMPDIR/$USER
+    if [[ -d $TMPDIR/$USER ]] ; then ls "$TMPDIR/$USER" | wc -l ; else echo 0 ; fi
+}
+
+@test "the working directory is removed when maper ends" {
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [ "$(working_dirs)" -eq 0 ]
+}
+
+@test "the working directory is removed when maper fails" {
+    export STUB_FAIL=mirtk:register
+    run_maper a1
+    [ "$status" -ne 0 ]
+    [ "$(working_dirs)" -eq 0 ]
+}
+
+@test "savewd=1 in the environment keeps the working directory (a debugging aid)" {
+    export savewd=1
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [ "$(working_dirs)" -eq 1 ]
+}
+
+@test "a TMPDIR whose path contains a space works" {
+    export TMPDIR="$BATS_TEST_TMPDIR/tmp dir with space"
+    mkdir "$TMPDIR"
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+    [ "$(working_dirs)" -eq 0 ]
+}

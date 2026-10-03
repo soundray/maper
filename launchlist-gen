@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
+ppath=$(realpath "${BASH_SOURCE[0]}")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 cmd=$(printf '%q ' "$0" "$@")

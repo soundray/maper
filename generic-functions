@@ -1,6 +1,6 @@
 msg () {
     for msgline
-    do echo -e "$pname: $msgline" >&2
+    do echo -e "${pname:-${0##*/}}: $msgline" >&2
     done
 }
 
@@ -10,15 +10,16 @@ fatal () { usage ; msg "$@" ; exit 1 ; }
 die () { msg "$@" ; exit 1 ; }
 
 tempdir () {
-    : ${TMPDIR:="/tmp"}
+    : "${TMPDIR:=/tmp}"
     tdbase=$TMPDIR/$USER
-    test -e $tdbase || mkdir -p $tdbase
-    td=$(mktemp -d $tdbase/$(basename $0).XXXXXX) || fatal "Could not create temp dir in $tdbase"
-    echo $td
+    test -e "$tdbase" || mkdir -p "$tdbase"
+    td=$(mktemp -d "$tdbase/$(basename "$0").XXXXXX") || fatal "Could not create temp dir in $tdbase"
+    echo "$td"
 }
 
 finish () {
-    [[ $savewd -eq 1 ]] || rm -rf "$td"
+    # savewd=1 in the environment keeps the working directory, for debugging
+    [[ ${savewd:-} -eq 1 ]] || rm -rf "$td"
     exit
 }
 

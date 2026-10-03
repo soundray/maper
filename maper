@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
+ppath=$(realpath "${BASH_SOURCE[0]}")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
@@ -248,6 +248,7 @@ parse_labelspecs() { # <array-name> <option> <kind: Source|Target> <spec>...
         [[ $spec == *:* && -n $name && -n $file ]] \
             || fatal "Parameter error: $option expects name:file, got '$spec'"
         [[ -e $file ]] || fatal "Parameter error: $kind segmentation '$name' does not exist: $file"
+        # shellcheck disable=SC2034  # assigns to the array that "result" refers to
         result["$name"]=$(realpath "$file")
     done
 }
@@ -274,14 +275,15 @@ progress() {
 }
 
 tc3() { ### Tissue classification
-    local input=$(realpath "$1") ; shift
+    local input outdir bn tdl
+    input=$(realpath "$1") ; shift
     # Expected: mri.nii.gz mask.nii.gz pre.dof.gz
     # Optional: tc3raw.nii.gz
-    local outdir=$(realpath "$1") ; shift
+    outdir=$(realpath "$1") ; shift
 
-    local bn=$(basename "$input")
-    local tdl=$(mktemp -d tc3."$bn".XXXXX)
-    cd $tdl
+    bn=$(basename "$input")
+    tdl=$(mktemp -d tc3."$bn".XXXXX)
+    cd "$tdl"
 
     if [[ -n $dryrun ]] ; then
 	      ( cd "$outdir"
@@ -346,7 +348,8 @@ regprop() {  ### Registration and label propagation
     local srcseg="$src"/srcseg.nii.gz
     local autosegdir="$outdir"/seg/
     #
-    local tdl=$(mktemp -d regprop.XXXXX)
+    local tdl
+    tdl=$(mktemp -d regprop.XXXXX)
     cd "$tdl"
     cp "$pdir"/neutral.dof.gz .
     ds=2.5 ; [[ $quicktest ]] && ds=10
@@ -423,9 +426,11 @@ regprop() {  ### Registration and label propagation
             #
 	          if [[ $debug ]] ; then
 		            mirtk transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+		            # shellcheck disable=SC2046  # unquoted on purpose: word splitting puts the lines of the table on one line
 		            echo -e $(mirtk evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
 		            for i in coarse0 coarse1 fine ; do
 		                mirtk transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+		                # shellcheck disable=SC2046  # unquoted on purpose: word splitting puts the lines of the table on one line
 		                echo -e $(mirtk evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
 		            done
 		            echo
@@ -438,7 +443,6 @@ regprop() {  ### Registration and label propagation
 	      srcseg=${sourceseg["$i"]}
 	      if [[ -s $srcseg ]] ; then
 	          autoseg="$autosegdir"/$i.nii.gz
-	          autosegtc="$autosegdir"/$i-tcsep.nii.gz
 	          [[ -s "$autoseg" ]] && continue
 	          [[ -n $dryrun ]] && continue
 	          mirtk transform-image "$srcseg" "$autoseg" \
@@ -484,8 +488,8 @@ jc() (
     local tgtseg=$1 ; shift
     local indcsv=$1 ; shift
     local avgcsv=$1 ; shift
-    local tmpdir=$(mktemp -d jc.XXXX)
-    local line lhs rhs value region j mean=
+    local tmpdir line lhs value region j mean=
+    tmpdir=$(mktemp -d jc.XXXX)
     cd "$tmpdir" || exit 1
     echo %%%%% JC %%%%%
     seg_stats "$refseg" -d "$tgtseg" >stats.txt || msg "Warning: seg_stats failed on $tgtseg, no overlap values"
@@ -513,14 +517,15 @@ jc() (
 )
 
 onepadgen() {
-    local mri=$(realpath "$1") ; shift
-    local mask=$(realpath "$1") ; shift
-    local onepad=$(realpath "$1") ; shift
+    local mri mask onepad tmpdir
+    mri=$(realpath "$1") ; shift
+    mask=$(realpath "$1") ; shift
+    onepad=$(realpath "$1") ; shift
     local side=$1 ; shift   # src or tgt, for error messages
     local label=Source ; [[ $side == tgt ]] && label=Target
     local incomplete="$label specification incomplete. Either [-${side}op file] or [-${side}mri fileA -${side}mask fileB] must be provided on commandline."
 
-    local tmpdir=$(mktemp -d onepadgen.XXXX)
+    tmpdir=$(mktemp -d onepadgen.XXXX)
     cd "$tmpdir" || exit 1
 
     echo "MRI: $mri"
@@ -746,9 +751,9 @@ fuse() {
 # fuse_if_ready <label set>: fuse the results of the label set if there are enough
 # of them and it has not been done. Runs while the fusion lock is held.
 fuse_if_ready() {
-    local i=$1 f nready thisseg ref sep min max
+    local i=$1 f nready thisseg ref sep max
     local -a results=()
-    for f in "$baseoutdir/$tgtid"/*"-$tgtid"/seg/"$i".nii.gz ; do
+    for f in "$baseoutdir/$tgtid"/*-"$tgtid"/seg/"$i".nii.gz ; do
         if [[ -s $f ]] ; then results+=("$f") ; fi
     done
     nready=${#results[@]}
@@ -762,7 +767,7 @@ fuse_if_ready() {
     # Generate tissue-class separated output
     if [[ -z $notc ]] ; then
         if [[ -z $dryrun ]] ; then
-            read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
+            read -r _ max <<< "$(seg_stats "$thisseg.nii.gz" -r)"
             sep=$(( max + 1 ))
             seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
             cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"

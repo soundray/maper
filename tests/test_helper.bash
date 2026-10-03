@@ -138,5 +138,6 @@ watch_until_exit() {
 maper_pair() {
     local s=$1 ; shift
     build_args "$s"
+    # shellcheck disable=SC2034  # the tests start the command with it
     MAPER_PAIR=("$MAPER" -srcid "$s" -tgtid T1 "${ARGS_NOID[@]}" "$@")
 }
