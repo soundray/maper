@@ -133,3 +133,127 @@ setup() { setup_common ; default_csvs ; }
     [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
     [ -s "$OUT/f3-seg-T1.nii.gz" ]
 }
+
+# --- options --------------------------------------------------------------------
+
+@test "-h prints the usage text and exits 0" {
+    run "$LAUNCHLIST_GEN" -h
+    [ "$status" -eq 0 ]
+    [[ $output == *"Usage:"* ]]
+}
+
+@test "usage documents the tissue-class options" {
+    run "$LAUNCHLIST_GEN" --help
+    [[ $output == *"-notc"* && $output == *"-tc2"* && $output == *"-tc3"* ]]
+}
+
+@test "missing -src-description is reported by name" {
+    run "$LAUNCHLIST_GEN" -tgt-description "$FX/tgt.csv" -output-dir "$OUT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-src-description is required"* ]]
+}
+
+@test "missing -tgt-description is reported by name" {
+    run "$LAUNCHLIST_GEN" -src-description "$FX/src.csv" -output-dir "$OUT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-tgt-description is required"* ]]
+}
+
+@test "unknown option is rejected and named" {
+    run_llgen -bogus
+    [ "$status" -ne 0 ]
+    [[ $output == *"Unknown option: -bogus"* ]]
+}
+
+@test "stray argument is rejected" {
+    run_llgen stray
+    [ "$status" -ne 0 ]
+    [[ $output == *"Unexpected argument: stray"* ]]
+}
+
+@test "option without a value is reported by name" {
+    run_llgen -threads
+    [ "$status" -ne 0 ]
+    [[ $output == *"-threads requires a value"* ]]
+}
+
+@test "-src-base that is not a directory is an error, not a silent fallback" {
+    run_llgen -src-base "$BATS_TEST_TMPDIR/no-such-dir"
+    [ "$status" -ne 0 ]
+    [[ $output == *"-src-base"* ]]
+}
+
+@test "-tc2, -tc3 and -notc are forwarded to every line" {
+    local opt
+    for opt in -tc2 -tc3 -notc ; do
+        run_llgen "$opt"
+        [ "$status" -eq 0 ]
+        local n
+        for n in 1 2 3 ; do
+            ll_words "$n"
+            ll_has "$opt"
+        done
+    done
+}
+
+@test "-tc2 together with -tc3 is rejected" {
+    run_llgen -tc2 -tc3
+    [ "$status" -ne 0 ]
+    [[ $output == *"only one of -tc2 and -tc3"* ]]
+}
+
+@test "-notc together with -tc3 is rejected" {
+    run_llgen -notc -tc3
+    [ "$status" -ne 0 ]
+    [[ $output == *"-notc is incompatible"* ]]
+}
+
+@test "-threads must be a positive integer" {
+    local bad
+    for bad in abc1 1x -3 0 "" ; do
+        run_llgen -threads "$bad"
+        [ "$status" -ne 0 ]
+        [[ $output == *"-threads requires a positive integer"* ]]
+    done
+}
+
+@test "-threads above the processor count of this machine is rejected" {
+    run_llgen -threads 100000
+    [ "$status" -ne 0 ]
+    [[ $output == *"-threads"*"exceeds"* ]]
+}
+
+@test "-arch is still accepted, and reported as ignored" {
+    run_llgen -arch x86_64
+    [ "$status" -eq 0 ]
+    [[ $output == *"-arch"*"ignored"* ]]
+}
+
+@test "-fastmode is still accepted" {
+    run_llgen -fastmode
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 3 ]
+}
+
+@test "works on a machine without MIRTK and NiftySeg (only maper needs them)" {
+    LL="$BATS_TEST_TMPDIR/launchlist.sh"
+    run env PATH=/usr/bin:/bin "$LAUNCHLIST_GEN" -src-description "$FX/src.csv" \
+        -tgt-description "$FX/tgt.csv" -output-dir "$OUT" -launchlist "$LL"
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 3 ]
+}
+
+@test "never runs maper itself: generating a launchlist has no side effects" {
+    # A per-pair "maper -dry-run" pre-check was long intended but never ran.
+    # Naively enabling it would stage full images for every source/target pair.
+    local spy="$BATS_TEST_TMPDIR/spy"
+    mkdir "$spy"
+    cp "$MAPER_ROOT/launchlist-gen" "$MAPER_ROOT/generic-functions" "$spy/"
+    printf '#!/usr/bin/env bash\necho "$*" >> "%s"\n' "$BATS_TEST_TMPDIR/spy.log" > "$spy/maper"
+    chmod +x "$spy/maper"
+    LL="$BATS_TEST_TMPDIR/launchlist.sh"
+    run "$spy/launchlist-gen" -src-description "$FX/src.csv" -tgt-description "$FX/tgt.csv" \
+        -output-dir "$OUT" -launchlist "$LL"
+    [ "$status" -eq 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/spy.log" ]
+}
