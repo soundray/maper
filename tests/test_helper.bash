@@ -26,6 +26,11 @@ setup_common() {
         for k in mri mask seg seg2 ; do echo data > "$FX/$f-$k.nii.gz" ; done
     done
     for f in t-mri t-mask t-ref t-ref2 ; do echo data > "$FX/$f.nii.gz" ; done
+    # optional columns of the description files
+    for f in a1 a2 a3 ; do
+        echo data > "$FX/$f-op.nii.gz" ; echo data > "$FX/$f-tc.nii.gz" ; echo data > "$FX/$f.dof.gz"
+    done
+    echo data > "$FX/t-op.nii.gz" ; echo data > "$FX/t-tc.nii.gz" ; echo data > "$FX/t.dof.gz"
 }
 
 # Sets ARGS_NOID to a complete, valid maper command line for atlas $1 against

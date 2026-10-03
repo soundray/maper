@@ -257,3 +257,236 @@ setup() { setup_common ; default_csvs ; }
     [ "$status" -eq 0 ]
     [ ! -e "$BATS_TEST_TMPDIR/spy.log" ]
 }
+
+# --- description files ----------------------------------------------------------
+
+@test "a description may have more than eight columns: four label sets plus all fixed columns" {
+    local k
+    for k in A B C D ; do echo data > "$FX/a1-s$k.nii.gz" ; echo data > "$FX/t-s$k.nii.gz" ; done
+    write_csv src.csv "id, mri, brainmask, tc3raw, pretransformation, segA, segB, segC, segD" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-tc.nii.gz, a1.dof.gz, a1-sA.nii.gz, a1-sB.nii.gz, a1-sC.nii.gz, a1-sD.nii.gz"
+    run_llgen
+    [ "$status" -eq 0 ]
+    ll_words 1
+    run ll_values -srclabels
+    [ "${lines[0]}" = "sega:$FX/a1-sA.nii.gz" ]
+    [ "${lines[1]}" = "segb:$FX/a1-sB.nii.gz" ]
+    [ "${lines[2]}" = "segc:$FX/a1-sC.nii.gz" ]
+    [ "${lines[3]}" = "segd:$FX/a1-sD.nii.gz" ]
+    [ "${#lines[@]}" -eq 4 ]
+}
+
+@test "label sets are emitted in the order of the header, so the launchlist is deterministic" {
+    local k
+    for k in zeta alpha mid beta ; do echo data > "$FX/a1-$k.nii.gz" ; done
+    write_csv src.csv "id, mri, zeta, alpha, mid, beta" \
+        "a1, a1-mri.nii.gz, a1-zeta.nii.gz, a1-alpha.nii.gz, a1-mid.nii.gz, a1-beta.nii.gz"
+    run_llgen
+    [ "$status" -eq 0 ]
+    ll_words 1
+    run ll_values -srclabels
+    [ "${lines[0]%%:*}" = zeta ]
+    [ "${lines[1]%%:*}" = alpha ]
+    [ "${lines[2]%%:*}" = mid ]
+    [ "${lines[3]%%:*}" = beta ]
+}
+
+@test "an empty optional cell does not shift the cells after it" {
+    write_csv tgt.csv "id, mri, brainmask, seg" "T1, t-mri.nii.gz, , t-ref.nii.gz"
+    run_llgen
+    [ "$status" -eq 0 ]
+    ll_words 1
+    [ "$(ll_values -tgtmri)" = "$FX/t-mri.nii.gz" ]
+    [ -z "$(ll_values -tgtmask)" ]
+    [ "$(ll_values -tgtlabels)" = "seg:$FX/t-ref.nii.gz" ]
+}
+
+@test "a target without a reference (empty trailing cell) simply has no -tgtlabels" {
+    write_csv tgt.csv "id, mri, brainmask, seg" \
+        "T1, t-mri.nii.gz, t-mask.nii.gz, t-ref.nii.gz" \
+        "T2, t-mri.nii.gz, t-mask.nii.gz,"
+    run_llgen
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 6 ]
+    ll_words 1
+    [ "$(ll_values -tgtid)" = T1 ]
+    [ -n "$(ll_values -tgtlabels)" ]
+    ll_words 4
+    [ "$(ll_values -tgtid)" = T2 ]
+    [ -z "$(ll_values -tgtlabels)" ]
+}
+
+@test "an atlas without a value for a label set is an error that names the row" {
+    write_csv src.csv "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz" \
+        "a2, a2-mri.nii.gz, a2-mask.nii.gz,"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"a2"*"seg"* ]]
+}
+
+@test "paths with spaces and shell metacharacters survive into the launchlist" {
+    local d="$FX/dir with space"
+    mkdir "$d"
+    cp "$FX"/a1-*.nii.gz "$FX"/t-*.nii.gz "$d/"
+    cp "$FX/a1-seg.nii.gz" "$d/we\$ird (1) 'q'.nii.gz"
+    write_csv src.csv "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, we\$ird (1) 'q'.nii.gz"
+    write_csv tgt.csv "id, mri, brainmask" "T1, t-mri.nii.gz, t-mask.nii.gz"
+    mv "$FX/src.csv" "$FX/tgt.csv" "$d/"
+    LL="$BATS_TEST_TMPDIR/launchlist.sh"
+    run "$LAUNCHLIST_GEN" -src-description "$d/src.csv" -tgt-description "$d/tgt.csv" \
+        -output-dir "$OUT" -launchlist "$LL"
+    [ "$status" -eq 0 ]
+    ll_words 1
+    [ "$(ll_values -srcmri)" = "$d/a1-mri.nii.gz" ]
+    [ "$(ll_values -srclabels)" = "seg:$d/we\$ird (1) 'q'.nii.gz" ]
+    # and maper accepts what was generated
+    run bash "$LL"
+    [ "$status" -eq 0 ]
+    [ -s "$OUT/T1/a1-T1/seg/seg.nii.gz" ]
+}
+
+@test "absolute paths in a description are used as they are" {
+    write_csv tgt.csv "id, mri, brainmask" "T1, $FX/t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -eq 0 ]
+    ll_words 1
+    [ "$(ll_values -tgtmri)" = "$FX/t-mri.nii.gz" ]
+    [ "$(ll_values -tgtmask)" = "$FX/t-mask.nii.gz" ]
+}
+
+@test "descriptions with Windows line endings work" {
+    printf 'id, mri, brainmask, seg\r\na1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz\r\n' > "$FX/src.csv"
+    printf 'id, mri, brainmask\r\nT1, t-mri.nii.gz, t-mask.nii.gz\r\n' > "$FX/tgt.csv"
+    run_llgen
+    [ "$status" -eq 0 ]
+    ll_words 1
+    [ "$(ll_values -srclabels)" = "seg:$FX/a1-seg.nii.gz" ]
+    [ "$(ll_values -tgtmask)" = "$FX/t-mask.nii.gz" ]
+}
+
+@test "comments and blank lines are ignored in both descriptions, before the header and between rows" {
+    write_csv src.csv "# atlases" "" "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz" "" "  # a2 is out" \
+        "a3, a3-mri.nii.gz, a3-mask.nii.gz, a3-seg.nii.gz"
+    write_csv tgt.csv "# targets" "" "id, mri, brainmask" "" "# T0 is out" \
+        "T1, t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -eq 0 ]
+    [ "$(ll_count)" -eq 2 ]
+}
+
+@test "spaces around fields are removed" {
+    write_csv tgt.csv "  id ,mri  ,   brainmask" "  T1  ,   t-mri.nii.gz,t-mask.nii.gz   "
+    run_llgen
+    [ "$status" -eq 0 ]
+    ll_words 1
+    [ "$(ll_values -tgtid)" = T1 ]
+    [ "$(ll_values -tgtmri)" = "$FX/t-mri.nii.gz" ]
+}
+
+@test "a row with a different number of fields than the header is an error that names file and line" {
+    write_csv src.csv "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz" \
+        "a2, a2-mri.nii.gz, a2-mask.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"src.csv:3"*"4 fields"*"found 3"* ]]
+}
+
+@test "duplicate ids are rejected, for sources and for targets" {
+    write_csv src.csv "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz" \
+        "a1, a2-mri.nii.gz, a2-mask.nii.gz, a2-seg.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"duplicate id a1"* ]]
+    default_csvs
+    write_csv tgt.csv "id, mri, brainmask" "T1, t-mri.nii.gz, t-mask.nii.gz" "T1, t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"duplicate id T1"* ]]
+}
+
+@test "a description without an id column is rejected" {
+    write_csv tgt.csv "name, mri, brainmask" "T1, t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"tgt.csv"*"id column"* ]]
+}
+
+@test "a description with neither mri nor onepad column is rejected" {
+    write_csv src.csv "id, brainmask, seg" "a1, a1-mask.nii.gz, a1-seg.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"src.csv"*"mri or onepad"* ]]
+}
+
+@test "a repeated column name is rejected" {
+    write_csv tgt.csv "id, mri, mri" "T1, t-mri.nii.gz, t-mri.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"column mri"*"more than once"* ]]
+}
+
+@test "a label set name that maper could not parse is rejected" {
+    write_csv src.csv "id, mri, a:b" "a1, a1-mri.nii.gz, a1-seg.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"a:b"* ]]
+}
+
+@test "a row with an empty id is rejected" {
+    write_csv tgt.csv "id, mri, brainmask" ", t-mri.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"tgt.csv:2"*"empty id"* ]]
+}
+
+@test "a description without any row is rejected" {
+    write_csv tgt.csv "id, mri, brainmask"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"tgt.csv"*"no rows"* ]]
+}
+
+@test "files named in the descriptions must exist; all missing ones are listed" {
+    write_csv src.csv "id, mri, brainmask, seg" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz" \
+        "a2, MISSING-mri.nii.gz, a2-mask.nii.gz, MISSING-seg.nii.gz"
+    write_csv tgt.csv "id, mri, brainmask" "T1, t-mri.nii.gz, NO-mask.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [[ $output == *"a2"*"mri"*"MISSING-mri.nii.gz"* ]]
+    [[ $output == *"a2"*"seg"*"MISSING-seg.nii.gz"* ]]
+    [[ $output == *"T1"*"brainmask"*"NO-mask.nii.gz"* ]]
+}
+
+@test "a failed validation leaves an existing launchlist untouched" {
+    run_llgen
+    [ "$status" -eq 0 ]
+    local before; before=$(cat "$LL")
+    write_csv tgt.csv "id, mri, brainmask" "T1, MISSING.nii.gz, t-mask.nii.gz"
+    run_llgen
+    [ "$status" -ne 0 ]
+    [ "$(cat "$LL")" = "$before" ]
+}
+
+@test "-fastmode skips the check that the named files exist" {
+    write_csv tgt.csv "id, mri, brainmask" "T1, MISSING.nii.gz, t-mask.nii.gz"
+    run_llgen -fastmode
+    [ "$status" -eq 0 ]
+    ll_words 1
+    [ "$(ll_values -tgtmri)" = "$FX/MISSING.nii.gz" ]
+}
+
+@test "the same input gives the same launchlist" {
+    write_csv src.csv "id, mri, brainmask, s1, s2, s3" \
+        "a1, a1-mri.nii.gz, a1-mask.nii.gz, a1-seg.nii.gz, a1-seg2.nii.gz, a1-op.nii.gz" \
+        "a2, a2-mri.nii.gz, a2-mask.nii.gz, a2-seg.nii.gz, a2-seg2.nii.gz, a2-op.nii.gz"
+    run_llgen
+    cp "$LL" "$BATS_TEST_TMPDIR/first.sh"
+    run_llgen
+    cmp "$LL" "$BATS_TEST_TMPDIR/first.sh"
+}
