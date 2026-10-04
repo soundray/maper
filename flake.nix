@@ -44,5 +44,9 @@
 
         default = maper;
       };
+
+      # nix flake check: the package builds, installs what it should, and runs a stubbed
+      # pipeline with the PATH the package gives it (tests/nix-checks.nix)
+      checks.${system} = import ./tests/nix-checks.nix { inherit pkgs; };
     };
 }

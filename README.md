@@ -150,8 +150,17 @@ are needed (`pip install -r tests/requirements.txt`):
     python3 -m pytest tests/
 
 `tests/lint.sh` runs shellcheck over all shell scripts and fails on any
-finding, down to style (settings in `.shellcheckrc`). The three checks run on GitHub Actions for every push
-and pull request (`.github/workflows/tests.yml`).
+finding, down to style (settings in `.shellcheckrc`).
+
+`nix flake check` builds the Nix package and checks what it installs. It also
+runs a segmentation with the *installed* `maper`, with MIRTK and NiftySeg being
+the stubs again. The package replaces `PATH` with a short list of store paths,
+so a command that exists on most systems but not there (`awk`, `hostname`, ...)
+would otherwise fail only on a user's machine. `nix build .#container` builds
+the image that `build-sif` turns into an Apptainer image.
+
+The four checks run on GitHub Actions for every push and pull request
+(`.github/workflows/tests.yml`).
 
 ### Apptainer image
 
