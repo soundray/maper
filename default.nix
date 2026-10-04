@@ -1,6 +1,13 @@
 {
-  # nixos-19.09 as of 2019-12-29
-  pkgsPath ? builtins.fetchTarball https://github.com/nixos/nixpkgs/archive/eab4ee0c27c5c6f622aa0ca55091c394a9e33edd.tar.gz
+  # nixpkgs to use when none is given: the revision that flake.lock pins, so that
+  # nix-build and `nix build` use the same one (`nix flake update` moves both)
+  pkgsPath ? let
+    lock = builtins.fromJSON (builtins.readFile ./flake.lock);
+    locked = lock.nodes.${lock.nodes.root.inputs.nixpkgs}.locked;
+  in builtins.fetchTarball {
+    url = "https://github.com/${locked.owner}/${locked.repo}/archive/${locked.rev}.tar.gz";
+    sha256 = locked.narHash;
+  }
   # nixpkgs to use
 , pkgs ? import pkgsPath {}
 }:

@@ -162,8 +162,10 @@ runs a segmentation with the *installed* `maper`, with MIRTK and NiftySeg being
 the stubs again, and the installed scripts that prepare an atlas database. The
 package replaces `PATH` with a short list of store paths, so a command that
 exists on most systems but not there (`awk`, `hostname`, ...) would otherwise
-fail only on a user's machine. `nix build .#container` builds the image that
-`build-sif` turns into an Apptainer image.
+fail only on a user's machine. `nix-build default.nix` builds the same package
+without flakes, with the nixpkgs revision that `flake.lock` pins.
+`nix build .#container` builds the image that `build-sif` turns into an
+Apptainer image.
 
 The four checks run on GitHub Actions for every push and pull request
 (`.github/workflows/tests.yml`).

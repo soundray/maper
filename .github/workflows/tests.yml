@@ -71,6 +71,9 @@ jobs:
       # installed maper (MIRTK and NiftySeg stubbed) under the PATH the package gives it
       - name: Flake checks
         run: nix flake check --print-build-logs --no-update-lock-file
+      # Without flakes: default.nix, with the nixpkgs revision that flake.lock pins
+      - name: Build with nix-build
+        run: nix-build default.nix --no-out-link
       # The image that build-sif turns into an Apptainer image
       - name: Build the container image
         run: nix build .#container --print-build-logs --no-link --no-update-lock-file
