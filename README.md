@@ -150,7 +150,7 @@ are needed (`pip install -r tests/requirements.txt`):
     python3 -m pytest tests/
 
 `tests/lint.sh` runs shellcheck over all shell scripts and fails on
-warnings and errors. The three checks run on GitHub Actions for every push
+warnings, errors and unquoted variables (SC2086). The three checks run on GitHub Actions for every push
 and pull request (`.github/workflows/tests.yml`).
 
 ### Apptainer image

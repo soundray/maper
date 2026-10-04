@@ -314,7 +314,7 @@ tc3() { ### Tissue classification
     fi
 
     # Prepare left and right masks
-    mirtk transform-image $pdir/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
+    mirtk transform-image "$pdir"/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
     seg_maths rightmask-custom.nii.gz -sub 1 -abs leftmask-custom.nii.gz
 
     # Generate crisp labels
@@ -372,22 +372,22 @@ regprop() {  ### Registration and label propagation
             #
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
-		              -model Rigid -levels 4 $lastrigidlevel -threads $threads
+		              -model Rigid -levels 4 "$lastrigidlevel" -threads "$threads"
             #
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0-1.dof.gz \
-		              -model Rigid -levels 4 $lastrigidlevel -threads $threads
+		              -model Rigid -levels 4 "$lastrigidlevel" -threads "$threads"
             #
 	          topnmi=$(
 		            for i in neutral prealign coarse0-0 coarse0-1 ; do
 		                nmi=$(mirtk evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
 					                      -metric NMI -noid -csv -precision 7 \
 					                      -dofin $i.dof.gz | tail -n 1)
-		                echo $nmi, $i
+		                echo "$nmi,$i"
 		            done | sort -rn | head -n 1 | cut -d , -f 2
 		              )
             msg "$topnmi is optimal"
-	          cp $topnmi.dof.gz coarse0.dof.gz
+	          cp "$topnmi".dof.gz coarse0.dof.gz
             #
 	          if [[ -z $notc ]] ; then
                 if [[ $tc3 == 1 ]] ; then
@@ -396,13 +396,13 @@ regprop() {  ### Registration and label propagation
                           "$src"/wmr.nii.gz "$src"/wml.nii.gz \
                           -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
                           -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
 		                mirtk register \
                           "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
                           "$src"/csf.nii.gz "$src"/gm.nii.gz \
                           -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
                           -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
                 fi
                 if [[ $tc2 == 1 ]] ; then
                     mirtk register \
@@ -410,24 +410,24 @@ regprop() {  ### Registration and label propagation
                           "$src"/gmwmr.nii.gz "$src"/gmwml.nii.gz \
                           -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
                           -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
 		                mirtk register \
                           "$tgt"/csf.nii.gz "$src"/csf.nii.gz \
                           -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
                           -par "Energy function" "SSD(I1, I2 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
                 fi
 		            nextlevel=2
 	          else
 		            mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
                       -dofin coarse0.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine -levels 4 1 \
-		                  -threads $threads
+		                  -threads "$threads"
 		            nextlevel=4
 	          fi
             #
 	          mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
 	    	          -dofin coarse.dof.gz -dofout fine.dof.gz \
-	    	          -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
+	    	          -bg 0 -model FFD -levels "$nextlevel" 1 -ds "$ds" -threads "$threads" \
 	    	          -par "Strict step length range" "No" \
 	    	          -par "Maximum streak of rejected steps" 2
 	          cp fine.dof.gz "$dof"
@@ -454,7 +454,7 @@ regprop() {  ### Registration and label propagation
 	          [[ -s "$autoseg" ]] && continue
 	          [[ -n $dryrun ]] && continue
 	          mirtk transform-image "$srcseg" "$autoseg" \
-		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
+		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads "$threads"
 	      fi
         ref=${targetseg[$i]}
         if [[ -s $ref ]] ; then
@@ -860,7 +860,7 @@ if [[ -z $dryrun ]] ; then
     [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
     [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
 fi
-[[ $debug ]] && cp -a $td "$outdir"
+[[ $debug ]] && cp -a "$td" "$outdir"
 
 # Fill the caches before a possible -tc3only exit: storing the tissue-class
 # maps for later runs is what -srccache/-tgtcache are for.

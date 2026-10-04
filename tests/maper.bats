@@ -742,6 +742,26 @@ working_dirs() { # the working directories maper leaves in $TMPDIR/$USER
     [ "$(working_dirs)" -eq 0 ]
 }
 
+@test "-debug keeps a copy of the working directory when the TMPDIR path contains a space" {
+    export TMPDIR="$BATS_TEST_TMPDIR/tmp dir with space"
+    mkdir "$TMPDIR"
+    run_maper a1 -debug
+    [ "$status" -eq 0 ]
+    [ "$(find "$OUT/T1/a1-T1" -maxdepth 1 -type d -name 'maper.*' | wc -l)" -eq 1 ]
+}
+
+@test "maper works from an installation whose path contains a space" {
+    local inst="$BATS_TEST_TMPDIR/install dir with space"
+    mkdir "$inst"
+    cp "$MAPER_ROOT"/{maper,generic-functions,neutral.dof.gz,rightmask.nii.gz} "$inst"/
+    MAPER="$inst/maper"
+    run_maper a1
+    [ "$status" -eq 0 ]
+    # the right mask of the atlas is the one file of the installation that mirtk is handed
+    grep -q -F "mirtk [transform-image] [$inst/rightmask.nii.gz] " "$STUB_LOG.args"
+    [ -s "$OUT/T1/a1-T1/src-tgt.dof.gz" ]
+}
+
 # --- a fusion lock whose holder died --------------------------------------------------------
 #
 # A job that is killed with SIGKILL (a cluster's last resort at the wall time limit) cannot

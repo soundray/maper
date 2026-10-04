@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Test stub for wget. Logs the call, one [bracket] per argument, to $STUB_LOG.args and
+# writes the file $STUB_WGET_FILE to standard output, as "wget -O - URL" would deliver
+# the download.
+printf 'wget' >> "${STUB_LOG:?}.args"
+printf ' [%s]' "$@" >> "$STUB_LOG.args"
+echo >> "$STUB_LOG.args"
+cat "${STUB_WGET_FILE:?}"

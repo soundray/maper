@@ -2,6 +2,8 @@
 # Test stub for MIRTK. Logs the call, creates the output file(s) the real tool
 # would create, and fails on demand: STUB_FAIL=mirtk:register[,mirtk:...]
 echo "mirtk $*" >> "${STUB_LOG:-/dev/null}"
+# the same call, one [bracket] per argument: tells an argument with a space in it from two
+if [[ -n ${STUB_LOG:-} ]] ; then { printf 'mirtk' ; printf ' [%s]' "$@" ; echo ; } >> "$STUB_LOG.args" ; fi
 sub=$1; shift
 if [[ ",${STUB_FAIL:-}," == *",mirtk:$sub,"* ]]; then
     echo "stub: forced failure of mirtk $sub" >&2
