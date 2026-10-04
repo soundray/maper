@@ -16,8 +16,8 @@ transformation between image-derived tissue probability maps, which is
 used as a starting point for registering the intensity images.
 Process yields are ca. 99.5% or higher (for example when segmenting
 [ADNI](http://adni.loni.usc.edu/) baseline T1-weighted images using
-the [Hammers<sub>mith</sub> Atlas
-Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
+the [Hammers Adult Brain Atlas Database
+(HABAD)](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
 Segmentation results tend to be plausible even in severe brain atrophy
 and other abnormal brain configurations.
 
@@ -96,22 +96,21 @@ To parallelize the above onto seven threads, replace the last line with
 cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ```
 
-### Use with the [Hammers<sub>mith</sub> Atlas Database](https://brain-development.org/brain-atlases/adult-brain-atlases/))
+### Use with the [Hammers Adult Brain Atlas Database (HABAD)](https://brain-development.org/brain-atlases/adult-brain-atlases/)
 
-Download and unpack the atlas database in `~/atlas`, then run
+Download and unpack HABAD in `~/atlas`. A download with the subdirectory
+`Hammers_mith-n30r95` is prepared for MAPER with
 ```
 mkdir ~/atlas/ancillaries
 hammers_mith-ancillaries.sh ~/atlas ~/atlas/ancillaries
 ```
-This will download and unpack the ancillary data needed for MAPER in the 
-given location, including the source description csv file. Point 
-`launchlist-gen` to this file via the `-src-description` option.
-
-For the Hammers n30r120 database (its download has a subdirectory
-`Hammers-n30r120`), run `hammers-atlas-db-n30r120-ancillaries.sh` the same way:
+and one with the subdirectory `Hammers-n30r120` with
 ```
 hammers-atlas-db-n30r120-ancillaries.sh ~/atlas ~/atlas/ancillaries
 ```
+Either script downloads and unpacks the ancillary data needed for MAPER in the
+given location, including the source description csv file. Point
+`launchlist-gen` to this file via the `-src-description` option.
 
 ### Multithreaded registration
 
