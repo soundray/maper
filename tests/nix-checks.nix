@@ -30,8 +30,8 @@ in {
   # The package builds, and what it installs is complete and runnable
   package = pkgs.runCommand "maper-package-check" { } ''
     cd ${maper}/bin
-    for c in maper launchlist-gen hammers_mith-ancillaries.sh run-maper-example-generate.sh \
-             maper-canonicalize-nifti maper-reorient2std-nifti ; do
+    for c in maper launchlist-gen hammers_mith-ancillaries.sh hammers-atlas-db-n30r120-ancillaries.sh \
+             run-maper-example-generate.sh maper-canonicalize-nifti maper-reorient2std-nifti ; do
       test -x "$c" || { echo "missing or not executable: bin/$c" >&2 ; exit 1 ; }
     done
     for f in maper launchlist-gen generic-functions neutral.dof.gz rightmask.nii.gz ; do
@@ -55,6 +55,37 @@ in {
     for c in maper launchlist-gen ; do
       if ./$c > $TMPDIR/$c.out 2>&1 ; then echo "$c without arguments should fail" >&2 ; exit 1 ; fi
       grep -q -i 'usage' $TMPDIR/$c.out || { echo "$c: no usage text" >&2 ; cat $TMPDIR/$c.out >&2 ; exit 1 ; }
+    done
+    touch $out
+  '';
+
+  # The scripts that prepare an atlas database, run as installed on a database of thirty
+  # made-up atlases; the tarball of ancillaries is in place, so nothing is downloaded
+  ancillaries = pkgs.runCommand "maper-ancillaries-check" { } ''
+    export HOME=$TMPDIR USER=nix
+    cd $TMPDIR
+    mkdir payload ; mkdir payload/onepad ; echo onepad > payload/onepad/a1.nii.gz
+    for n in $(seq 1 30) ; do
+      nn=$(printf %02d $n)
+      mkdir -p mith/Hammers_mith-n30r95 r120/Hammers-n30r120/sub-$nn/anat
+      echo "seg $n" > mith/Hammers_mith-n30r95/a$nn-seg.nii.gz
+      echo "seg $n" > r120/Hammers-n30r120/sub-$nn/anat/sub-''${nn}_space-orig_dseg.nii.gz
+    done
+
+    mkdir mith-out r120-out
+    tar -cf mith-out/hammers_mith-ancillaries-n30r95.tar -C payload .
+    tar -cf r120-out/hammers-atlas-db-n30r120-ancillaries.tar -C payload .
+    ${maper}/bin/hammers_mith-ancillaries.sh $PWD/mith $PWD/mith-out > log-mith 2>&1 \
+      || { cat log-mith >&2 ; exit 1 ; }
+    ${maper}/bin/hammers-atlas-db-n30r120-ancillaries.sh $PWD/r120 $PWD/r120-out > log-r120 2>&1 \
+      || { cat log-r120 >&2 ; exit 1 ; }
+
+    for d in mith-out/seg/seg95 r120-out/seg/seg120 ; do
+      test "$(cat $d/a30.nii.gz)" = "seg 30" || { echo "no a30 in $d" >&2 ; exit 1 ; }
+    done
+    for d in mith-out r120-out ; do
+      test -s $d/onepad/a1.nii.gz || { echo "$d: tarball not unpacked" >&2 ; exit 1 ; }
+      test "$(wc -l < $d/src-description.csv)" -eq 31 || { echo "$d: description file" >&2 ; exit 1 ; }
     done
     touch $out
   '';

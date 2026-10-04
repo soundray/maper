@@ -107,6 +107,12 @@ This will download and unpack the ancillary data needed for MAPER in the
 given location, including the source description csv file. Point 
 `launchlist-gen` to this file via the `-src-description` option.
 
+For the Hammers n30r120 database (its download has a subdirectory
+`Hammers-n30r120`), run `hammers-atlas-db-n30r120-ancillaries.sh` the same way:
+```
+hammers-atlas-db-n30r120-ancillaries.sh ~/atlas ~/atlas/ancillaries
+```
+
 ### Multithreaded registration
 
 In addition to the parallelization approach with `xargs` noted under 
@@ -154,10 +160,11 @@ finding, down to style (settings in `.shellcheckrc`).
 
 `nix flake check` builds the Nix package and checks what it installs. It also
 runs a segmentation with the *installed* `maper`, with MIRTK and NiftySeg being
-the stubs again. The package replaces `PATH` with a short list of store paths,
-so a command that exists on most systems but not there (`awk`, `hostname`, ...)
-would otherwise fail only on a user's machine. `nix build .#container` builds
-the image that `build-sif` turns into an Apptainer image.
+the stubs again, and the installed scripts that prepare an atlas database. The
+package replaces `PATH` with a short list of store paths, so a command that
+exists on most systems but not there (`awk`, `hostname`, ...) would otherwise
+fail only on a user's machine. `nix build .#container` builds the image that
+`build-sif` turns into an Apptainer image.
 
 The four checks run on GitHub Actions for every push and pull request
 (`.github/workflows/tests.yml`).
