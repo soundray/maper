@@ -24,7 +24,7 @@ Continue? Please enter 'y'
 
 EOF
 
-read reply
+read -r reply
 if [[ $reply != "y" ]] ; then echo "Not continuing" ; exit ; fi
 echo
 

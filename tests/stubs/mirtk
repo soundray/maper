@@ -14,6 +14,8 @@ case $sub in
     transform-image|dilate-image|convert-dof) mk "$2" ;;
     compose-dofs) mk "$3" ;;
     register|calculate-element-wise)
+        # what a registration prints to standard output, to be passed on by maper -verbose
+        [[ $sub == register && -n ${STUB_REGISTER_LINE:-} ]] && printf '%s\n' "$STUB_REGISTER_LINE"
         while [[ $# -gt 0 ]]; do
             [[ $1 == -dofout || $1 == -o ]] && mk "$2"
             shift

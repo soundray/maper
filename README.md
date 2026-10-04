@@ -149,8 +149,8 @@ are needed (`pip install -r tests/requirements.txt`):
 
     python3 -m pytest tests/
 
-`tests/lint.sh` runs shellcheck over all shell scripts and fails on
-warnings, errors and unquoted variables (SC2086). The three checks run on GitHub Actions for every push
+`tests/lint.sh` runs shellcheck over all shell scripts and fails on any
+finding, down to style (settings in `.shellcheckrc`). The three checks run on GitHub Actions for every push
 and pull request (`.github/workflows/tests.yml`).
 
 ### Apptainer image

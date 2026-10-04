@@ -7,6 +7,7 @@ cmd=$(printf '%q ' "$0" "$@")
 
 set -e
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 usage() {

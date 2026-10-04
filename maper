@@ -6,6 +6,7 @@ pname=$(basename "$ppath")
 
 set -e
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 startsec=$(date +%s)
@@ -844,7 +845,7 @@ if [[ $tc3only == 0 ]] ; then
     msg "=== Registration and propagation ==="
     # Without pipefail the status of this pipeline is that of the progress loop,
     # so regprop's own status has to be read from PIPESTATUS.
-    regprop "$td"/src "$td"/tgt "$td"/regout | while read i ; do progress "$i" ; done
+    regprop "$td"/src "$td"/tgt "$td"/regout | while read -r i ; do progress "$i" ; done
     regprop_status=${PIPESTATUS[0]}
     [[ $regprop_status -eq 0 ]] || die "Registration and propagation failed (exit status $regprop_status)"
     msg "."
@@ -943,4 +944,4 @@ if [[ $atlasn -ge 3 ]] ; then
 fi
 
 endsec=$(date +%s)
-msg "runtime: $[$endsec-$startsec] seconds"
+msg "runtime: $(( endsec - startsec )) seconds"

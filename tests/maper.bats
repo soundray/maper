@@ -742,6 +742,21 @@ working_dirs() { # the working directories maper leaves in $TMPDIR/$USER
     [ "$(working_dirs)" -eq 0 ]
 }
 
+@test "-verbose passes on the output of the registration line by line, backslashes and all" {
+    export STUB_REGISTER_LINE='a line that ends in a backslash \'
+    run_maper a1 -verbose
+    [ "$status" -eq 0 ]
+    [ "$(stub_calls mirtk register)" -gt 1 ]
+    # one message per line printed; a plain "read" would join each with the next line
+    [ "$(grep -c '^maper: a line that ends in a backslash \\$' <<< "$output")" -eq "$(stub_calls mirtk register)" ]
+}
+
+@test "maper reports its runtime in seconds" {
+    run_maper a1
+    [ "$status" -eq 0 ]
+    [[ $output =~ maper:\ runtime:\ [0-9]+\ seconds ]]
+}
+
 @test "-debug keeps a copy of the working directory when the TMPDIR path contains a space" {
     export TMPDIR="$BATS_TEST_TMPDIR/tmp dir with space"
     mkdir "$TMPDIR"

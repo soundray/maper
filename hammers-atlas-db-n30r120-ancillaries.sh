@@ -6,6 +6,7 @@ pname=$(basename "$ppath")
 
 set -e 
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 usage() {
