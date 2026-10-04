@@ -40,13 +40,13 @@ in pkgs.runCommand "maper" {
   };
 } ''
   mkdir -p $out/bin $out/lib/maper
-  cp ${src}/{maper,launchlist-gen,run-maper-example-generate.sh,generic-functions,hammers_mith-ancillaries.sh,hammers-atlas-db-n30r120-ancillaries.sh,canonicalize-nifti.py,reorient2std-nifti.py} $out/lib/maper
+  cp ${src}/{maper,launchlist-gen,run-maper-example-generate.sh,generic-functions,atlas-ancillaries.sh,hammers-atlas-db-n30r120-ancillaries.sh,canonicalize-nifti.py,reorient2std-nifti.py} $out/lib/maper
   chmod u+w $out/lib/maper/generic-functions
   echo "export PATH='${binpath}'" >>$out/lib/maper/generic-functions
   sed -i "s^##nix-path-goes-here##^source $out/lib/maper/generic-functions^" $out/lib/maper/run-maper-example-generate.sh
   for f in $out/lib/maper/* ; do patchShebangs $f ; done
   cp ${src}/neutral.dof.gz ${src}/rightmask.nii.gz $out/lib/maper
-  ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example-generate.sh,hammers_mith-ancillaries.sh,hammers-atlas-db-n30r120-ancillaries.sh} $out/bin
+  ln -s $out/lib/maper/{maper,launchlist-gen,run-maper-example-generate.sh,atlas-ancillaries.sh,hammers-atlas-db-n30r120-ancillaries.sh} $out/bin
   makeWrapper ${pythonEnv}/bin/python "$out/bin/maper-canonicalize-nifti" \
     --add-flags "$out/lib/maper/canonicalize-nifti.py"
   makeWrapper ${pythonEnv}/bin/python "$out/bin/maper-reorient2std-nifti" \

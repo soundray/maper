@@ -99,10 +99,10 @@ cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ### Use with the [Hammers Adult Brain Atlas Database (HABAD)](https://brain-development.org/brain-atlases/adult-brain-atlases/)
 
 Download and unpack HABAD in `~/atlas`. A download with the subdirectory
-`Hammers_mith-n30r95` is prepared for MAPER with
+`HABAD-n30r95` is prepared for MAPER with
 ```
 mkdir ~/atlas/ancillaries
-hammers_mith-ancillaries.sh ~/atlas ~/atlas/ancillaries
+atlas-ancillaries.sh ~/atlas ~/atlas/ancillaries
 ```
 and one with the subdirectory `Hammers-n30r120` with
 ```
