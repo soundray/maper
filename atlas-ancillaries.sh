@@ -19,7 +19,7 @@ for MAPER.
 Usage: $pname \$DOWNLOAD \$ANCILLARIES
 
 \$DOWNLOAD is the directory path where the download from brain-development.org is stored. It should 
-contain a subdirectory HABAD-n30r95
+contain a subdirectory Hammers-n30r95
 
 \$ANCILLARIES is a directory path where the script saves the ancillaries (preprocessed versions of 
 the T1-weighted images, brain masks, pre-transformation matrices, and a source description 
@@ -31,7 +31,7 @@ EOF
 [[ $# -eq 2 ]] || fatal "Parameter error. "
 
 atlasdb=$1 ; shift
-[[ -d $atlasdb/HABAD-n30r95 ]] || fatal "Atlas database not found in $atlasdb"
+[[ -d $atlasdb/Hammers-n30r95 ]] || fatal "Atlas database not found in $atlasdb"
 
 ancilldb=$1 ; shift
 cd "$ancilldb" || fatal "Could not change directory to $ancilldb. "
@@ -55,7 +55,7 @@ rm "$atlas.tar"
 
 for a in {1..30} ; do 
     aa=$(printf '%02g' "$a")
-    cp "$atlasdb/HABAD-n30r95/a$aa-seg.nii.gz" "seg/seg95/a$a.nii.gz"
+    cp "$atlasdb/Hammers-n30r95/a$aa-seg.nii.gz" "seg/seg95/a$a.nii.gz"
 done
 
 cat >src-description.csv <<EOF

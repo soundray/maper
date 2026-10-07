@@ -9,7 +9,7 @@ setup() { setup_common ; }
 
 # A database with 30 atlases in the layout of <set>, and an ancillaries directory.
 # Their paths contain a space, unless $PLAIN is set.
-#   habad95:      <atlasdb>/HABAD-n30r95/aNN-seg.nii.gz
+#   r95:          <atlasdb>/Hammers-n30r95/aNN-seg.nii.gz
 #   hammers120:   <atlasdb>/Hammers-n30r120/sub-NN/anat/sub-NN_space-orig_dseg.nii.gz
 make_database() { # <set> <tarball name>
     if [[ -n ${PLAIN:-} ]] ; then
@@ -22,9 +22,9 @@ make_database() { # <set> <tarball name>
     for a in {1..30} ; do
         aa=$(printf '%02d' "$a")
         case $1 in
-            habad95)
-                mkdir -p "$ATLASDB/HABAD-n30r95"
-                echo "seg $a" > "$ATLASDB/HABAD-n30r95/a$aa-seg.nii.gz" ;;
+            r95)
+                mkdir -p "$ATLASDB/Hammers-n30r95"
+                echo "seg $a" > "$ATLASDB/Hammers-n30r95/a$aa-seg.nii.gz" ;;
             hammers120)
                 mkdir -p "$ATLASDB/Hammers-n30r120/sub-$aa/anat"
                 echo "seg $a" > "$ATLASDB/Hammers-n30r120/sub-$aa/anat/sub-${aa}_space-orig_dseg.nii.gz" ;;
@@ -35,7 +35,7 @@ make_database() { # <set> <tarball name>
 }
 
 @test "atlas-ancillaries.sh prepares the ancillaries; the paths contain spaces" {
-    make_database habad95 hammers_mith-ancillaries-n30r95
+    make_database r95 hammers_mith-ancillaries-n30r95
     cp "$BATS_TEST_TMPDIR/hammers_mith-ancillaries-n30r95.tar" "$ANCILL"/
     run "$MAPER_ROOT/atlas-ancillaries.sh" "$ATLASDB" "$ANCILL"
     [ "$status" -eq 0 ]
@@ -61,7 +61,7 @@ make_database() { # <set> <tarball name>
 }
 
 @test "atlas-ancillaries.sh downloads the tarball with wget when it is not there" {
-    PLAIN=1 make_database habad95 hammers_mith-ancillaries-n30r95
+    PLAIN=1 make_database r95 hammers_mith-ancillaries-n30r95
     export STUB_WGET_FILE="$BATS_TEST_TMPDIR/hammers_mith-ancillaries-n30r95.tar"
     run "$MAPER_ROOT/atlas-ancillaries.sh" "$ATLASDB" "$ANCILL"
     [ "$status" -eq 0 ]

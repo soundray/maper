@@ -67,23 +67,23 @@ in {
     mkdir payload ; mkdir payload/onepad ; echo onepad > payload/onepad/a1.nii.gz
     for n in $(seq 1 30) ; do
       nn=$(printf %02d $n)
-      mkdir -p habad95/HABAD-n30r95 r120/Hammers-n30r120/sub-$nn/anat
-      echo "seg $n" > habad95/HABAD-n30r95/a$nn-seg.nii.gz
+      mkdir -p r95/Hammers-n30r95 r120/Hammers-n30r120/sub-$nn/anat
+      echo "seg $n" > r95/Hammers-n30r95/a$nn-seg.nii.gz
       echo "seg $n" > r120/Hammers-n30r120/sub-$nn/anat/sub-''${nn}_space-orig_dseg.nii.gz
     done
 
-    mkdir habad95-out r120-out
-    tar -cf habad95-out/hammers_mith-ancillaries-n30r95.tar -C payload .
+    mkdir r95-out r120-out
+    tar -cf r95-out/hammers_mith-ancillaries-n30r95.tar -C payload .
     tar -cf r120-out/hammers-atlas-db-n30r120-ancillaries.tar -C payload .
-    ${maper}/bin/atlas-ancillaries.sh $PWD/habad95 $PWD/habad95-out > log-habad95 2>&1 \
-      || { cat log-habad95 >&2 ; exit 1 ; }
+    ${maper}/bin/atlas-ancillaries.sh $PWD/r95 $PWD/r95-out > log-r95 2>&1 \
+      || { cat log-r95 >&2 ; exit 1 ; }
     ${maper}/bin/hammers-atlas-db-n30r120-ancillaries.sh $PWD/r120 $PWD/r120-out > log-r120 2>&1 \
       || { cat log-r120 >&2 ; exit 1 ; }
 
-    for d in habad95-out/seg/seg95 r120-out/seg/seg120 ; do
+    for d in r95-out/seg/seg95 r120-out/seg/seg120 ; do
       test "$(cat $d/a30.nii.gz)" = "seg 30" || { echo "no a30 in $d" >&2 ; exit 1 ; }
     done
-    for d in habad95-out r120-out ; do
+    for d in r95-out r120-out ; do
       test -s $d/onepad/a1.nii.gz || { echo "$d: tarball not unpacked" >&2 ; exit 1 ; }
       test "$(wc -l < $d/src-description.csv)" -eq 31 || { echo "$d: description file" >&2 ; exit 1 ; }
     done

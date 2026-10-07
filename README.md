@@ -16,8 +16,8 @@ transformation between image-derived tissue probability maps, which is
 used as a starting point for registering the intensity images.
 Process yields are ca. 99.5% or higher (for example when segmenting
 [ADNI](http://adni.loni.usc.edu/) baseline T1-weighted images using
-the [Hammers Adult Brain Atlas Database
-(HABAD)](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
+the [Hammers Adult Brain Atlas
+Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
 Segmentation results tend to be plausible even in severe brain atrophy
 and other abnormal brain configurations.
 
@@ -96,10 +96,10 @@ To parallelize the above onto seven threads, replace the last line with
 cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ```
 
-### Use with the [Hammers Adult Brain Atlas Database (HABAD)](https://brain-development.org/brain-atlases/adult-brain-atlases/)
+### Use with the [Hammers Adult Brain Atlas Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)
 
-Download and unpack HABAD in `~/atlas`. A download with the subdirectory
-`HABAD-n30r95` is prepared for MAPER with
+Download and unpack the database in `~/atlas`. A download with the subdirectory
+`Hammers-n30r95` is prepared for MAPER with
 ```
 mkdir ~/atlas/ancillaries
 atlas-ancillaries.sh ~/atlas ~/atlas/ancillaries
