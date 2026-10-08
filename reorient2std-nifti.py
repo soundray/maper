@@ -44,7 +44,7 @@ def same_values(a, b):
     differs from NaN, so every floating point image containing a NaN failed
     the verification of the written file. (np.array_equal(..., equal_nan=True)
     would do, but it needs numpy 1.19.) The same function is in
-    reorient2std-nifti.py and canonicalize-nifti.py.
+    canonicalize-nifti.py, centre-origin-nifti.py and reorient2std-nifti.py.
     """
     a = np.asanyarray(a)
     b = np.asanyarray(b)
@@ -112,7 +112,7 @@ def staged_outputs():
     ends without an error, and removed when it ends with one -- also when it
     ends with an interrupt or with SIGTERM, which is what a cluster sends to
     a job that overruns before it kills it. The same code is in
-    reorient2std-nifti.py and canonicalize-nifti.py.
+    canonicalize-nifti.py, centre-origin-nifti.py and reorient2std-nifti.py.
     """
 
     def terminated(signum, frame):

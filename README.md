@@ -150,9 +150,7 @@ control flow and argument handling, not registration quality.
 
 The three Python scripts (`canonicalize-nifti.py`, `reorient2std-nifti.py`,
 `centre-origin-nifti.py`) have pytest tests that build their images with
-nibabel, so no data files are needed (`pip install -r tests/requirements.txt`).
-Tests of known bugs of `centre-origin-nifti.py` are marked as expected
-failures (xfail) until the bugs are fixed:
+nibabel, so no data files are needed (`pip install -r tests/requirements.txt`):
 
     python3 -m pytest tests/
 

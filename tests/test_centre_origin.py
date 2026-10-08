@@ -1,29 +1,16 @@
 """Tests for centre-origin-nifti.py.
 
 Needs nibabel, numpy and pytest. Images are built in the tests, so no data files
-are required. The helpers are those of test_nifti.py.
-
-Three groups of tests are marked "xfail, strict": they describe what the script should
-do and does not yet. They are bugs found while writing these tests, not wishes:
-
-* NaN: a float image with NaN in it (a masked statistics map, for instance) is
-  refused with "Stored voxel values changed", because the verification compares with
-  np.array_equal, for which NaN is different from NaN.
-* All or nothing: the image is saved under its final name and verified afterwards,
-  so a run that fails leaves a bad file there, destroys an earlier output, and
-  destroys the input of a conversion in place. canonicalize-nifti.py and
-  reorient2std-nifti.py write under a hidden temporary name and move the verified
-  file into place.
-* Large grids: the translation is stored as float32, and the verification allows the
-  grid centre 1e-5 mm of error, less than float32 can hold above about 250 mm. About
-  half of the grids of 500 to 2000 voxels with voxel sizes such as 0.7 or 1.1 mm are
-  refused with "Grid centre is not at origin".
-
-When one of them is fixed, its tests XPASS, which strict mode reports as a failure:
-remove the marker then.
+are required. The helpers are those of test_nifti.py, whose tests of NaN, of the
+all-or-nothing output and of the error messages are repeated here for this script:
+it has the same guarantees as canonicalize-nifti.py and reorient2std-nifti.py.
 """
 import json
 import math
+import subprocess
+import sys
+import time
+from pathlib import Path
 
 import nibabel as nib
 import numpy as np
@@ -31,34 +18,24 @@ import pytest
 
 from test_nifti import (
     ALL_ORIENTATIONS,
+    REORIENT,
     ROOT,
     change_a_value,
     corrupting_save,
+    drop_a_nan,
+    half_written_then_fail,
     listing,
     make_affine,
     raw,
     run_in_process,
     run_script,
+    turn_a_value_into_nan,
     volume,
     with_nans,
     write_nifti,
 )
 
 CENTRE = ROOT / "centre-origin-nifti.py"
-
-NAN_BUG = pytest.mark.xfail(
-    strict=True, raises=AssertionError,
-    reason="compares voxels with np.array_equal: NaN differs from NaN, 'Stored voxel values changed'",
-)
-NOT_ALL_OR_NOTHING = pytest.mark.xfail(
-    strict=True, raises=AssertionError,
-    reason="saves under the final name before verifying: a failure leaves a bad file there",
-)
-FLOAT32_TOLERANCE = pytest.mark.xfail(
-    strict=True, raises=AssertionError,
-    reason="the translation is float32, the check allows 1e-5 mm: 'Grid centre is not at origin'",
-)
-
 
 def grid_centre(path):
     """World coordinate of the centre of the voxel grid, by the qform."""
@@ -333,10 +310,9 @@ def test_a_changed_voxel_value_is_detected(tmp_path, monkeypatch, dtype):
         run_in_process(monkeypatch, CENTRE, src, tmp_path / "out.nii.gz")
 
 
-# --- known bugs: NaN -----------------------------------------------------------------
+# --- NaN in floating point images ----------------------------------------------------
 
 
-@NAN_BUG
 @pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64])
 def test_an_image_with_nan_is_processed(tmp_path, dtype):
     data = with_nans(volume(dtype))
@@ -348,7 +324,6 @@ def test_an_image_with_nan_is_processed(tmp_path, dtype):
     assert np.array_equal(out[~np.isnan(data)], data[~np.isnan(data)])
 
 
-@NAN_BUG
 def test_an_image_of_only_nan_is_processed(tmp_path):
     src = write_nifti(tmp_path / "in.nii.gz", np.full((4, 5, 6), np.nan, dtype=np.float32), make_affine())
     res = run_script(CENTRE, src, tmp_path / "out.nii.gz")
@@ -356,7 +331,6 @@ def test_an_image_of_only_nan_is_processed(tmp_path):
     assert np.isnan(raw(tmp_path / "out.nii.gz")).all()
 
 
-@NAN_BUG
 def test_an_image_with_nan_keeps_its_slope_and_intercept(tmp_path):
     src = write_nifti(tmp_path / "in.nii.gz", with_nans(volume(np.float32)), make_affine(), slope_inter=(2.0, 10.0))
     res = run_script(CENTRE, src, tmp_path / "out.nii.gz")
@@ -365,10 +339,9 @@ def test_an_image_with_nan_keeps_its_slope_and_intercept(tmp_path):
     assert (out.dataobj.slope, out.dataobj.inter) == (2.0, 10.0)
 
 
-# --- known bugs: all or nothing ------------------------------------------------------
+# --- the output is all or nothing ----------------------------------------------------
 
 
-@NOT_ALL_OR_NOTHING
 def test_a_failed_verification_leaves_no_output(tmp_path, monkeypatch):
     src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
     monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
@@ -377,7 +350,6 @@ def test_a_failed_verification_leaves_no_output(tmp_path, monkeypatch):
     assert listing(tmp_path) == ["in.nii.gz"]
 
 
-@NOT_ALL_OR_NOTHING
 def test_a_failed_verification_keeps_the_previous_output(tmp_path, monkeypatch):
     src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
     out = tmp_path / "out.nii.gz"
@@ -388,7 +360,6 @@ def test_a_failed_verification_keeps_the_previous_output(tmp_path, monkeypatch):
     assert out.read_bytes() == b"an earlier output"
 
 
-@NOT_ALL_OR_NOTHING
 def test_a_failed_conversion_in_place_leaves_the_input_untouched(tmp_path, monkeypatch):
     src = write_nifti(tmp_path / "scan.nii.gz", volume(np.int16), make_affine())
     before = src.read_bytes()
@@ -406,7 +377,7 @@ def test_converting_in_place_works(tmp_path):
     assert np.array_equal(raw(src), volume(np.int16))
 
 
-# --- known bugs: large grids ---------------------------------------------------------
+# --- large grids: the translation is stored as float32 -------------------------------
 
 
 def long_grid(n, zoom):
@@ -422,9 +393,277 @@ def test_large_grids_that_float32_holds_exactly_are_centred(tmp_path, n, zoom):
     np.testing.assert_allclose(grid_centre(out), 0, atol=1e-3)
 
 
-@FLOAT32_TOLERANCE
 @pytest.mark.parametrize("n,zoom", [(512, 1.1), (512, 2.3), (777, 0.7), (1500, 0.7)])
 def test_large_grids_with_voxel_sizes_that_float32_cannot_hold_are_centred(tmp_path, n, zoom):
     out = centre(tmp_path, *long_grid(n, zoom))
     # float32 has about seven digits: 1e-3 mm is generous at these sizes
     np.testing.assert_allclose(grid_centre(out), 0, atol=1e-3)
+
+
+# --- the output is all or nothing: the rest of it ------------------------------------
+#
+# The image (and the metadata file) is written under a hidden temporary name next to its
+# destination, verified there, and only then moved into place. A run that fails, is
+# interrupted or runs out of disk space leaves nothing at the destination and nothing
+# else behind; an earlier output stays as it was.
+
+
+def test_a_failed_verification_leaves_no_metadata_file(tmp_path, monkeypatch):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError):
+        run_in_process(monkeypatch, CENTRE, src, tmp_path / "out.nii.gz", "--json", tmp_path / "side.json")
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+def test_a_failed_verification_keeps_the_previous_output_and_metadata(tmp_path, monkeypatch):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = write_nifti(tmp_path / "out.nii.gz", volume(np.uint8), make_affine(zooms=(2, 2, 2)))
+    side = tmp_path / "side.json"
+    side.write_text("previous")
+    before = (out.read_bytes(), side.read_text())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError):
+        run_in_process(monkeypatch, CENTRE, src, out, "--json", side, "--force")
+    assert (out.read_bytes(), side.read_text()) == before
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz", "side.json"]
+
+
+def test_running_out_of_disk_space_leaves_nothing(tmp_path, monkeypatch):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    monkeypatch.setattr(nib, "save", half_written_then_fail(nib.save))
+    with pytest.raises(OSError, match="No space left"):
+        run_in_process(monkeypatch, CENTRE, src, tmp_path / "out.nii.gz")
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+def test_a_failed_conversion_in_place_leaves_nothing_else_behind(tmp_path, monkeypatch):
+    src = write_nifti(tmp_path / "scan.nii.gz", volume(np.int16), make_affine())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, change_a_value))
+    with pytest.raises(RuntimeError):
+        run_in_process(monkeypatch, CENTRE, src, src, "--force")
+    assert listing(tmp_path) == ["scan.nii.gz"]
+
+
+def test_converting_in_place_leaves_only_the_image(tmp_path):
+    src = write_nifti(tmp_path / "scan.nii.gz", volume(np.int16), make_affine())
+    res = run_script(CENTRE, src, src, "--force")
+    assert res.returncode == 0, res.stderr
+    assert listing(tmp_path) == ["scan.nii.gz"]
+
+
+def test_only_the_requested_files_remain_after_success(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    res = run_script(CENTRE, src, tmp_path / "out.nii.gz", "--json", tmp_path / "side.json")
+    assert res.returncode == 0, res.stderr
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz", "side.json"]
+    assert json.loads((tmp_path / "side.json").read_text())
+
+
+def test_bare_file_names_in_the_current_directory(tmp_path):
+    write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    res = run_script(CENTRE, "in.nii.gz", "out.nii.gz", "--json", "side.json", cwd=tmp_path)
+    assert res.returncode == 0, res.stderr
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz", "side.json"]
+
+
+@pytest.mark.parametrize("name", ["out.nii.gz", "out.nii", "scan.v2.nii.gz"])
+def test_the_image_is_first_written_to_a_hidden_file_of_the_same_kind(tmp_path, monkeypatch, name):
+    """The temporary name keeps the extension (nibabel chooses the format by it) and is
+    hidden, so that a glob such as *.nii.gz does not pick up an unfinished file."""
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / name
+    names = []
+    original_save = nib.save
+
+    def spy(img, fname, *args, **kwargs):
+        names.append(Path(fname))
+        return original_save(img, fname, *args, **kwargs)
+
+    monkeypatch.setattr(nib, "save", spy)
+    run_in_process(monkeypatch, CENTRE, src, out)
+    assert len(names) == 1
+    written = names[0]
+    assert written != out
+    assert written.parent == out.parent
+    assert written.name.startswith(".")
+    assert written.name.endswith("".join(out.suffixes))
+    assert listing(tmp_path) == sorted(["in.nii.gz", name])
+
+
+def test_being_terminated_leaves_nothing(tmp_path):
+    """A cluster stops a job that overruns with SIGTERM before it kills it."""
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+    ready = tmp_path / "ready"
+    driver = f"""
+import importlib.util, sys, time
+import nibabel as nib
+spec = importlib.util.spec_from_file_location("script", {str(CENTRE)!r})
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original_save = nib.save
+def slow_save(img, fname, *args, **kwargs):
+    original_save(img, fname, *args, **kwargs)   # the whole file is on disk ...
+    open({str(ready)!r}, "w").close()
+    time.sleep(60)                               # ... but the job is not finished
+nib.save = slow_save
+sys.argv = [{CENTRE.name!r}, {str(src)!r}, {str(out)!r}]
+module.main()
+"""
+    proc = subprocess.Popen([sys.executable, "-c", driver], stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(200):
+            if ready.exists() or proc.poll() is not None:
+                break
+            time.sleep(0.05)
+        assert ready.exists(), "the script never got as far as saving"
+        proc.terminate()
+        proc.wait(timeout=20)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode != 0
+    assert not out.exists()
+    assert listing(tmp_path) == ["in.nii.gz", "ready"]
+
+
+def test_refusing_to_overwrite_changes_nothing(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+    out.write_text("existing")
+    res = run_script(CENTRE, src, out, "--json", tmp_path / "side.json")
+    assert res.returncode != 0
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz"]
+    assert out.read_text() == "existing"
+
+
+# --- errors name the file the user asked for, not the temporary one ------------------
+
+
+def test_a_missing_output_directory_names_the_requested_path(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "no" / "such" / "out.nii.gz"
+    res = run_script(CENTRE, src, out)
+    assert res.returncode != 0
+    assert str(out) in res.stderr
+    assert ".tmp" not in res.stderr
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+def test_a_write_error_names_the_requested_path(tmp_path, monkeypatch):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+
+    def failing_save(img, fname, *args, **kwargs):
+        raise OSError(13, "Permission denied", str(fname))
+
+    monkeypatch.setattr(nib, "save", failing_save)
+    with pytest.raises(OSError) as info:
+        run_in_process(monkeypatch, CENTRE, src, out)
+    assert str(out) in str(info.value)
+    assert ".tmp" not in str(info.value)
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+def test_failing_to_move_the_output_into_place_names_only_the_requested_path(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = tmp_path / "out.nii.gz"
+    out.mkdir()                              # a directory in the way: the final rename fails
+    res = run_script(CENTRE, src, out, "--force")
+    assert res.returncode != 0
+    assert str(out) in res.stderr
+    assert ".tmp" not in res.stderr
+    assert " -> " not in res.stderr
+    assert listing(tmp_path) == ["in.nii.gz", "out.nii.gz"]
+
+
+# --- overwriting --------------------------------------------------------------------
+
+
+def test_an_output_that_is_a_symlink_is_written_through(tmp_path):
+    data = volume(np.int16)
+    src = write_nifti(tmp_path / "in.nii.gz", data, make_affine())
+    real = tmp_path / "real.nii.gz"
+    real.write_text("placeholder")
+    link = tmp_path / "link.nii.gz"
+    link.symlink_to(real.name)
+    res = run_script(CENTRE, src, link, "--force")
+    assert res.returncode == 0, res.stderr
+    assert link.is_symlink()
+    assert np.array_equal(raw(real), data)
+    assert listing(tmp_path) == ["in.nii.gz", "link.nii.gz", "real.nii.gz"]
+
+
+def test_overwriting_keeps_the_permissions_of_the_file(tmp_path):
+    src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
+    out = write_nifti(tmp_path / "out.nii.gz", volume(np.int16), make_affine())
+    side = tmp_path / "side.json"
+    side.write_text("{}")
+    out.chmod(0o664)
+    side.chmod(0o660)
+    res = run_script(CENTRE, src, out, "--json", side, "--force")
+    assert res.returncode == 0, res.stderr
+    assert out.stat().st_mode & 0o777 == 0o664
+    assert side.stat().st_mode & 0o777 == 0o660
+
+
+# --- the verification still catches real differences ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "damage", [change_a_value, turn_a_value_into_nan, drop_a_nan],
+    ids=["value-changed", "value-became-nan", "nan-became-value"],
+)
+def test_real_differences_are_detected_in_an_image_with_nan(tmp_path, monkeypatch, damage):
+    src = write_nifti(tmp_path / "in.nii.gz", with_nans(volume(np.float32)), make_affine())
+    monkeypatch.setattr(nib, "save", corrupting_save(nib.save, damage))
+    with pytest.raises(RuntimeError, match="(?i)voxel values"):
+        run_in_process(monkeypatch, CENTRE, src, tmp_path / "out.nii.gz")
+
+
+def shifting_save(original_save, shift_mm):
+    """A save that puts the grid centre somewhere else than the origin."""
+
+    def save(img, fname, *args, **kwargs):
+        aff = img.get_qform().copy()
+        aff[:3, 3] += shift_mm
+        moved = nib.Nifti1Image(np.asanyarray(img.dataobj), aff, header=img.header)
+        moved.set_qform(aff, 1)
+        moved.set_sform(aff, 1)
+        original_save(moved, fname, *args, **kwargs)
+
+    return save
+
+
+@pytest.mark.parametrize("n,zoom,shift", [(6, 2.0, 1.0), (6, 2.0, 0.001), (1500, 0.7, 0.01)])
+def test_a_grid_centre_that_is_not_at_the_origin_is_detected(tmp_path, monkeypatch, n, zoom, shift):
+    """The tolerance follows the precision of float32 at the size of the grid, and no more:
+    a real shift of 1 micrometre on a small grid and of 10 micrometre on a large one is caught."""
+    data, aff = long_grid(n, zoom)
+    src = write_nifti(tmp_path / "in.nii.gz", data, aff)
+    monkeypatch.setattr(nib, "save", shifting_save(nib.save, shift))
+    with pytest.raises(RuntimeError, match="Grid centre is not at origin"):
+        run_in_process(monkeypatch, CENTRE, src, tmp_path / "out.nii.gz")
+    assert listing(tmp_path) == ["in.nii.gz"]
+
+
+# --- the helpers are copies of those of the other scripts ----------------------------
+
+
+def test_the_helpers_shared_with_the_other_scripts_are_identical():
+    """The scripts are installed one by one, so the helpers are copied, not imported."""
+    import ast
+
+    def definitions(script):
+        text = script.read_text()
+        return {
+            node.name: ast.get_source_segment(text, node)
+            for node in ast.parse(text).body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        }
+
+    centre_helpers, reorient = definitions(CENTRE), definitions(REORIENT)
+    for name in ("temporary_name", "Staged", "staged_outputs", "same_values", "raw_data", "scaling"):
+        assert name in centre_helpers and name in reorient, name
+        assert centre_helpers[name] == reorient[name], name
