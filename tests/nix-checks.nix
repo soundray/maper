@@ -31,7 +31,8 @@ in {
   package = pkgs.runCommand "maper-package-check" { } ''
     cd ${maper}/bin
     for c in maper launchlist-gen atlas-ancillaries.sh hammers-atlas-db-n30r120-ancillaries.sh \
-             run-maper-example-generate.sh maper-canonicalize-nifti maper-reorient2std-nifti ; do
+             run-maper-example-generate.sh maper-canonicalize-nifti maper-reorient2std-nifti \
+             maper-centre-origin-nifti ; do
       test -x "$c" || { echo "missing or not executable: bin/$c" >&2 ; exit 1 ; }
     done
     for f in maper launchlist-gen generic-functions neutral.dof.gz rightmask.nii.gz ; do
@@ -50,6 +51,7 @@ in {
     # the Python scripts find their modules
     ./maper-canonicalize-nifti --help > /dev/null
     ./maper-reorient2std-nifti --help > /dev/null
+    ./maper-centre-origin-nifti --help > /dev/null
 
     # the shell scripts start and answer a call without arguments with their usage text
     for c in maper launchlist-gen ; do
