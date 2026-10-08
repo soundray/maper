@@ -998,3 +998,25 @@ time.sleep(45)                      # never waits for the child
     [ ! -e "$(lock_of)" ]
     [ -z "$(pgrep -f "maper -srcid.*$BATS_TEST_TMPDIR" || true)" ]   # no refreshing left behind
 }
+
+@test "fusion lock: a job that loses the race for the lock after looking leaves the winner's lock as it is" {
+    # mv puts a directory inside one that exists (the BSD mv has no -T to say it should not);
+    # the job must notice that it did not get the lock, and take its directory out again
+    fast_locks
+    local s
+    for s in a1 a2 ; do
+        run_maper "$s" -atlasn 3
+        [ "$status" -eq 0 ]
+    done
+    maper_pair a3 -atlasn 3
+    STUB_LOCK_INSTALL_PAUSE=3 "${MAPER_PAIR[@]}" 3>&- >"$BATS_TEST_TMPDIR/a3.log" 2>&1 &
+    local slow=$!
+    wait_for "$BATS_TEST_TMPDIR/install-paused"      # a3 has seen no lock and is about to put its own in place
+    mkdir "$(lock_of)"                               # in the meantime another job did
+    echo "othernode:7" > "$(lock_of)/owner"
+    wait "$slow"
+    [ "$(ls -A "$(lock_of)")" = "owner" ]            # nothing of a3's is left inside it
+    [ "$(cat "$(lock_of)/owner")" = "othernode:7" ]
+    [ ! -e "$OUT/f3-seg-T1.nii.gz" ]                 # a3 does not fuse under a lock that is not its own
+    [ -z "$(ls -A "$OUT" | grep '^\.' || true)" ]    # and leaves no temporary directory
+}

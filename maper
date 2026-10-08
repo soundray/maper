@@ -616,10 +616,23 @@ stage_out() {
     while IFS= read -r -d '' f ; do publish "$1/$f" "$2/$f" ; done < <(cd "$1" && find . -type f -print0)
 }
 
+# install_dir <directory> <destination>: give the directory the name <destination>, which
+# nothing has, in one step; fails if <destination> exists. Only what POSIX has is used, so
+# this works with the mv of macOS and the other BSDs: they have no -T ("<destination> is the
+# new name, not a directory to move into"). Where <destination> exists as a directory, mv
+# puts <directory> inside it, and that is a failure -- taken back out again.
+install_dir() {
+    local base=${1##*/}
+    [[ ! -e $2 ]] || return 1
+    mv "$1" "$2" 2>/dev/null || return 1
+    if [[ -e $2/$base ]] ; then rm -rf "${2:?}/$base" ; return 1 ; fi
+}
+
 # publish_cache <directory with the files> <cache directory>
 # The cache directory is created empty at the start, and a job that finds fewer than
 # nine files in it generates them itself. The full directory takes its place in one
-# step. If another job was first, its directory stays: both hold the same files.
+# step (an empty directory makes way for it). If another job was first, its directory
+# stays: both hold the same files.
 # A cache that cannot be written is not an error, only slower.
 publish_cache() {
     local tmp
@@ -628,7 +641,8 @@ publish_cache() {
         if [[ -n $tmp ]] ; then rm -rf "$tmp" ; fi
         return 0
     fi
-    if ! mv -T "$tmp" "$2" 2>/dev/null ; then
+    rmdir "$2" 2>/dev/null || true
+    if ! install_dir "$tmp" "$2" ; then
         rm -rf "$tmp"
         if [[ -z $(ls -A "$2" 2>/dev/null) ]] ; then msg "Warning: could not publish the cache $2 -- not caching" ; fi
     fi
@@ -664,10 +678,9 @@ td=$(tempdir)
 #
 # Of all the jobs for a target only one at a time may fuse. The lock is a directory
 # that is made complete -- it holds the file "owner", host:pid of the holder --
-# under a temporary name and then renamed into place, so nobody ever sees one
-# without an owner, and the rename fails while the lock exists. (The rename does
-# replace an empty directory: the lock of an earlier version is taken over so.)
-# Letting go is a rename as well, see drop_lock.
+# under a temporary name and then renamed into place (install_dir), so nobody ever
+# sees one without an owner, and the rename fails while the lock exists. Letting go
+# is a rename as well, see drop_lock.
 #
 # A job killed with SIGKILL (the last resort of a cluster at the wall time limit)
 # cannot release its lock, and the lock would block the fusion of the target for
@@ -711,18 +724,19 @@ try_lock() {
     local stage
     stage=$(mktemp -d "$baseoutdir/.fusion-tmp.XXXXXX") || die "Cannot create files in $baseoutdir"
     printf '%s:%s\n' "${HOSTNAME:-$(uname -n)}" "$$" > "$stage/owner" || die "Cannot create files in $baseoutdir"
-    if mv -T "$stage" "$1" 2>/dev/null ; then return 0 ; fi
+    if install_dir "$stage" "$1" ; then return 0 ; fi
     rm -rf "$stage"
     return 1
 }
 
-# drop_lock <lock>: remove the lock in one step. Emptying it first and then removing the
-# directory would leave a moment with an empty directory, which try_lock takes over; the
-# removal that follows would then fail, or remove the new holder's lock.
+# drop_lock <lock>: remove the lock in one step, by renaming it. Emptying it first and then
+# removing the directory would leave a moment at which the lock is an empty directory,
+# which break_stale_lock takes over as one of an earlier version; the removal that
+# follows would then fail, or remove the new holder's lock.
 drop_lock() {
     local gone
     gone=$(mktemp -d "$baseoutdir/.fusion-gone.XXXXXX") || { rm -rf "$1" ; return 0 ; }
-    mv -T "$1" "$gone" 2>/dev/null || true
+    mv "$1" "$gone/lock" 2>/dev/null || true
     rm -rf "$gone"
 }
 
@@ -732,6 +746,15 @@ drop_lock() {
 # the job that had taken over before it.
 break_stale_lock() {
     local lock=$1 breaker=$1.break age owner
+    # a lock without an owner file is the empty directory of an earlier version of maper:
+    # ours are complete from the moment they can be seen. It has no heartbeat to go by.
+    if [[ -d $lock && ! -e $lock/owner ]] ; then
+        if rmdir "$lock" 2>/dev/null ; then
+            msg "Taking over the fusion lock $lock, which has no owner (left by an earlier version)"
+            return 0
+        fi
+        return 1
+    fi
     [[ -e $lock/owner ]] || return 1
     age=$(file_age "$lock/owner") || return 1
     if [[ $age -le $lock_timeout ]] ; then
