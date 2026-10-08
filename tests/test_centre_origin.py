@@ -281,12 +281,21 @@ def test_an_existing_output_is_not_overwritten_without_force(tmp_path):
     np.testing.assert_allclose(grid_centre(out), 0, atol=1e-4)
 
 
+def reported_in_one_line(res):
+    """The error output has one line of the script's own, and the script did not crash
+    with a traceback of its own. (Python 3.14 prints a harmless "Exception ignored"
+    traceback of gzip.py at exit when nibabel could not open a file, before or after
+    the message; it belongs to neither the script nor the message.)"""
+    own = [line for line in res.stderr.splitlines() if line.startswith("centre-origin-nifti.py: ")]
+    assert len(own) == 1, res.stderr
+    assert f'File "{CENTRE}"' not in res.stderr
+    return own[0]
+
+
 def test_a_missing_input_is_reported_in_one_line(tmp_path):
     res = run_script(CENTRE, tmp_path / "nothing.nii.gz", tmp_path / "out.nii.gz")
     assert res.returncode != 0
-    assert "Traceback" not in res.stderr
-    assert res.stderr.startswith("centre-origin-nifti.py: ")
-    assert "nothing.nii.gz" in res.stderr
+    assert "nothing.nii.gz" in reported_in_one_line(res)
     assert listing(tmp_path) == []
 
 
@@ -294,8 +303,7 @@ def test_a_missing_output_directory_is_reported_in_one_line(tmp_path):
     src = write_nifti(tmp_path / "in.nii.gz", volume(np.int16), make_affine())
     res = run_script(CENTRE, src, tmp_path / "no" / "such" / "out.nii.gz")
     assert res.returncode != 0
-    assert "Traceback" not in res.stderr
-    assert "out.nii.gz" in res.stderr
+    assert "out.nii.gz" in reported_in_one_line(res)
     assert listing(tmp_path) == ["in.nii.gz"]
 
 

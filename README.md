@@ -170,6 +170,31 @@ Apptainer image.
 The four checks run on GitHub Actions for every push and pull request
 (`.github/workflows/tests.yml`).
 
+#### Running the tests after a change
+
+The shell tests need `bats` and `bc`, the Python tests need pytest, nibabel and
+numpy, the lint needs shellcheck. With Nix, one command provides all of them:
+
+    nix-shell -p bats bc shellcheck 'python3.withPackages (ps: with ps; [ pytest nibabel numpy ])'
+
+(if Nix does not know `<nixpkgs>` on your machine, add `-I nixpkgs=flake:nixpkgs`).
+In that shell, from the top of the repository:
+
+    tests/lint.sh                 # shellcheck, a few seconds
+    bats tests/                   # the shell tests, 3-4 minutes
+    python3 -m pytest tests/      # the Python tests, under a minute
+    nix flake check               # the Nix package and its checks
+
+While working on one thing, run only the tests that belong to it:
+
+    bats tests/maper.bats --filter "fusion lock"
+    python3 -m pytest tests/test_centre_origin.py -k "nan"
+
+`bats --print-output-on-failure` shows what a failing test printed.
+A change to `maper` that adds or alters behaviour should come with a test in
+`tests/maper.bats`, written first and seen to fail; the helpers `run_maper`
+and `stub_calls` are in `tests/test_helper.bash`.
+
 ### Apptainer image
 
 On an x86-64 Linux system with Nix and Apptainer installed, build a MAPER Apptainer image with reproducibly pinned dependencies:
