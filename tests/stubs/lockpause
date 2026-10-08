@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Test stub for mkdir, mv and rm (symlinks to this file). They are the plain tools,
+# except that
+# * mv does not know -T, as the mv of macOS and the other BSDs does not: whatever is tested
+#   runs with an mv that only moves, and moves into a directory that exists;
+# * a fusion lock (.../fusion-semaphore-<set>-<target>) can be made to take time, once per
+#   test, to force a particular interleaving of two jobs:
+#   STUB_LOCK_INSTALL_PAUSE=<s>  just before mv moves a prepared lock into place: the job has
+#                                seen no lock, and does not have one yet
+#   STUB_LOCK_ACQUIRE_PAUSE=<s>  right after mv has moved the lock into place: the job
+#                                holds the lock but has not yet looked at the results
+#   STUB_LOCK_RELEASE_PAUSE=<s>  before mv moves the lock away: the job is done with its
+#                                pass but has not yet let go (and is still refreshing it)
+#   STUB_LOCK_HALFWAY_PAUSE=<s>  rm -rf of the lock stops half way, with the lock emptied
+#                                but not yet removed, and then does its last step (an
+#                                rmdir of whatever directory is there by then). Only a
+#                                job that releases its lock that way is affected.
+#   STUB_BREAK_PAUSE=<s>         before mkdir of the claim ("<lock>.break") that a job
+#                                needs to take over a lock it found dead
+# STUB_STATE_DIR is where the "already paused" marks are kept.
+tool=${0##*/}
+self=$(cd "$(dirname "$0")" && pwd)
+real=$(PATH=${PATH//"$self":/} command -v "$tool")
+
+lock='' claim=''
+for a in "$@" ; do
+    case $a in
+        */fusion-semaphore-*.break) claim=$a ;;
+        */fusion-semaphore-*)       lock=$a ;;
+    esac
+done
+
+pause_once() { # <mark> <seconds> <when>
+    if [[ -n $3 && -n ${2:-} && ! -e ${STUB_STATE_DIR:?}/$1 ]] ; then
+        : > "$STUB_STATE_DIR/$1"
+        sleep "$2"
+    fi
+}
+
+case $tool in
+    mkdir)
+        pause_once break-paused "${STUB_BREAK_PAUSE:-}" "$claim"
+        ;;
+    mv)
+        for a in "$@" ; do
+            if [[ $a == --no-target-directory || ( $a == -* && $a != --* && $a == *T* ) ]] ; then
+                echo "mv: illegal option -- T" >&2 ; exit 64
+            fi
+        done
+        if [[ -n $lock && ${!#} == "$lock" ]] ; then      # the lock is the destination
+            pause_once install-paused "${STUB_LOCK_INSTALL_PAUSE:-}" "$lock"
+            "$real" "$@" || exit
+            pause_once acquire-paused "${STUB_LOCK_ACQUIRE_PAUSE:-}" "$lock"
+            exit 0
+        fi
+        pause_once release-paused "${STUB_LOCK_RELEASE_PAUSE:-}" "$lock"
+        ;;
+    rm)
+        if [[ -n $lock && -n ${STUB_LOCK_HALFWAY_PAUSE:-} && ! -e ${STUB_STATE_DIR:?}/halfway-paused ]] ; then
+            : > "$STUB_STATE_DIR/halfway-paused"
+            "$real" -f "$lock/owner"
+            sleep "$STUB_LOCK_HALFWAY_PAUSE"
+            [[ -e $lock ]] || exit 0
+            exec "$(PATH=${PATH//"$self":/} command -v rmdir)" "$lock"
+        fi
+        ;;
+esac
+exec "$real" "$@"

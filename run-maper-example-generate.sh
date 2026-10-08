@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
-pdir=$(dirname "$ppath")
-pname=$(basename "$ppath")
-
 set -e 
 
 cat <<EOF 
@@ -28,7 +24,7 @@ Continue? Please enter 'y'
 
 EOF
 
-read reply
+read -r reply
 if [[ $reply != "y" ]] ; then echo "Not continuing" ; exit ; fi
 echo
 

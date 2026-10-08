@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
+ppath=$(realpath "${BASH_SOURCE[0]}")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
 set -e 
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 usage() {
@@ -33,28 +34,28 @@ atlasdb=$1 ; shift
 [[ -d $atlasdb/Hammers-n30r120 ]] || fatal "Atlas database not found in $atlasdb"
 
 ancilldb=$1 ; shift
-cd $ancilldb || fatal "Could not change directory to $ancilldb. "
+cd "$ancilldb" || fatal "Could not change directory to $ancilldb. "
 
 mkdir -p seg/seg120 || fatal "Could not create output directories in $ancilldb. "
 
 ### Download atlas ancillaries
 atlas=hammers-atlas-db-n30r120-ancillaries
 if [[ ! -e $atlas.tar ]] ; then
-    dlcommand="wget -O -"
+    dlcommand=(wget -O -)
     # url=https://github.com/soundray/maper/releases/download/0.9.1-rc/$atlas.tar
     url=https://soundray.org/maper/$atlas.tar
-    type wget >/dev/null 2>&1 || dlcommand="curl -fL"
-    echo $dlcommand $url 
-    $dlcommand $url >$atlas.tar || fatal "Download failed. wget or curl must be installed"
+    type wget >/dev/null 2>&1 || dlcommand=(curl -fL)
+    echo "${dlcommand[*]}" "$url"
+    "${dlcommand[@]}" "$url" >"$atlas.tar" || fatal "Download failed. wget or curl must be installed"
 fi
 [[ ! -e $atlas.tar ]] && fatal "No tarfile found -- something went wrong"
 
-tar -xf $atlas.tar || fatal "Atlas unpacking failed"
-rm $atlas.tar
+tar -xf "$atlas.tar" || fatal "Atlas unpacking failed"
+rm "$atlas.tar"
 
 for a in {1..30} ; do 
-    aa=$(printf '%02g' $a)
-    cp $atlasdb/Hammers-n30r120/sub-$aa/anat/sub-${aa}_space-orig_dseg.nii.gz seg/seg120/a$a.nii.gz
+    aa=$(printf '%02g' "$a")
+    cp "$atlasdb/Hammers-n30r120/sub-$aa/anat/sub-${aa}_space-orig_dseg.nii.gz" "seg/seg120/a$a.nii.gz"
 done
 
 cat >src-description.csv <<EOF

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Test stub for NiftySeg seg_maths: the last argument is the output file.
+echo "seg_maths $*" >> "${STUB_LOG:-/dev/null}"
+if [[ ",${STUB_FAIL:-}," == *",seg_maths,"* ]]; then
+    echo "stub: forced failure of seg_maths" >&2
+    exit 3
+fi
+echo stub > "${!#}"

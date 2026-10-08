@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Test stub for cp: the plain tool, except when STUB_CP_PAUSE (seconds) is set and the
+# destination (the last argument) contains STUB_CP_MATCH. Then every regular file is
+# written in two halves with the pause in between, so that a process looking at the
+# destination meanwhile can catch a file half written or a directory half filled.
+# Understands: cp SRC DEST, cp SRC... DIR/, cp -r SRC... DIR/.
+self=$(cd "$(dirname "$0")" && pwd)
+real=$(PATH=${PATH//"$self":/} command -v cp)
+args=("$@")
+n=${#args[@]}
+dest=${args[n-1]:-}
+if [[ -z ${STUB_CP_PAUSE:-} || $n -lt 2 || $dest != *"${STUB_CP_MATCH:-/}"* ]] ; then
+    exec "$real" "$@"
+fi
+
+srcs=()
+for (( k = 0 ; k < n - 1 ; k++ )) ; do
+    case ${args[k]} in -*) ;; *) srcs+=("${args[k]}") ;; esac
+done
+
+slow_file() { # <source file> <destination file>
+    local size half
+    size=$(wc -c < "$1") ; half=$(( size / 2 ))
+    head -c "$half" "$1" > "$2"
+    sleep "$STUB_CP_PAUSE"
+    tail -c +"$(( half + 1 ))" "$1" >> "$2"
+}
+
+slow_into() { # <source file or directory> <existing directory>
+    local name=${1##*/} child
+    if [[ -d $1 ]] ; then
+        mkdir -p "$2/$name"
+        for child in "$1"/* ; do slow_into "$child" "$2/$name" ; done
+    else
+        slow_file "$1" "$2/$name"
+    fi
+}
+
+if [[ -d $dest ]] ; then
+    for s in "${srcs[@]}" ; do slow_into "$s" "$dest" ; done
+else
+    slow_file "${srcs[0]}" "$dest"
+fi

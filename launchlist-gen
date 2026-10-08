@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
+ppath=$(realpath "${BASH_SOURCE[0]}")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
-cmd="$0 $@"
+cmd=$(printf '%q ' "$0" "$@")
 
 set -e
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 usage() {
@@ -15,18 +16,48 @@ cat <<EOF
     $pname - generates a shell script containing maper calls for each possible pairing
                  from a source description and a target description
 
-    Usage: $pname -src-base atlasdir/ -src-description atlases.csv [-src-cache cachedir/] \\
-                          -tgt-base targetdir/ -tgt-description targets.csv [-tgt-cache cachedir/] \\
-                          -output-dir distinctname -launchlist outputfile.sh \\
-                          [-threads 1] [-loocv] [-fastmode]
+    Usage: $pname -src-description atlases.csv -tgt-description targets.csv \\
+                          [-src-base atlasdir/] [-tgt-base targetdir/] \\
+                          [-src-cache cachedir/] [-tgt-cache cachedir/] \\
+                          [-output-dir distinctname] [-launchlist outputfile.sh] \\
+                          [-threads 1] [-loocv] [-quicktest] [-notc | -tc2 | -tc3]
 
+           $pname -h | --help
+
+    Descriptions are comma-separated files with one image per row and a header
+    line naming the columns, in any order (case does not matter):
+
+       id                    required, unique
+       mri, onepad           at least one of the two is required
+       brainmask, tc3raw, pretransformation
+                             optional
+       any other name        a label set (segmentation) of that name
+
+    Blank lines and lines starting with # are ignored. Paths are relative to
+    -src-base and -tgt-base, which default to the directory of the respective
+    description, unless they are absolute. Every atlas needs a value for each
+    label set; for targets the label sets are references for the overlap
+    assessment and may be left empty.
+
+    [-threads N]
+       Threads per maper call (positive integer, at most the number of processors
+       of this machine)
+
+    [-loocv]
+       Leave-one-out: skip pairs of an image with itself
+
+    [-quicktest]
+       Forwarded to maper: accelerated run (very coarse result)
+
+    [-notc | -tc2 | -tc3]
+       Forwarded to maper: skip tissue mapping, or choose two-class (default) or
+       three-class tissue mapping for prealignment
+
+    [-fastmode]
+       Do not check that the files named in the descriptions exist
 
 EOF
 }
-
-### Check for MIRTK and NiftySeg
-type mirtk >/dev/null 2>&1 || fatal "MIRTK not found. Please ensure mirtk binary is on executable path"
-type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_maths is on executable path"
 
 srcbase=
 srcdesc=
@@ -38,111 +69,221 @@ outdir=$PWD
 launchlist=launchlist.sh
 loocv=
 threads=1
-fastmode=0
-quicktest=
-notc3=
-[[ $# -lt 6 ]] && fatal "Parameter error"
+fastmode=
+notc=
+tc2=
+tc3=
+forward=()
+
+# Absolute path of a file argument; falls back to the argument as given so that
+# the existence checks below can report it by name.
+abspath() { realpath -- "$1" 2>/dev/null || printf '%s\n' "$1" ; }
+
+valopts=" -src-base -src-description -src-cache -tgt-base -tgt-description -tgt-cache"
+valopts+=" -output-dir -launchlist -threads -arch "
 while [ $# -gt 0 ]
 do
+    if [[ $valopts == *" $1 "* && $# -lt 2 ]] ; then
+        fatal "Parameter error: option $1 requires a value"
+    fi
     case "$1" in
-	-src-base)               srcbase=$(realpath "$2") ; shift ;;
-	-src-description)        srcdesc=$(realpath "$2") ; shift ;;
+	-h|--help)               usage ; exit 0 ;;
+	-src-base)               srcbase=$(abspath "$2") ; shift ;;
+	-src-description)        srcdesc=$(abspath "$2") ; shift ;;
 	-src-cache)             srccache=$(realpath "$2") ; shift ;;
-	-tgt-base)               tgtbase=$(realpath "$2") ; shift ;;
-	-tgt-description)        tgtdesc=$(realpath "$2") ; shift ;;
+	-tgt-base)               tgtbase=$(abspath "$2") ; shift ;;
+	-tgt-description)        tgtdesc=$(abspath "$2") ; shift ;;
 	-tgt-cache)             tgtcache=$(realpath "$2") ; shift ;;
 	-output-dir)              outdir=$(realpath "$2") ; shift ;;
 	-launchlist)          launchlist="$2" ; shift ;;
 	-threads)                threads="$2" ; shift ;;
-	-arch)                      arch="$2" ; shift ;;
+	-arch)                   msg "Warning: -arch is ignored" ; shift ;;
 	-loocv)                    loocv=1 ;;
-        -notc3)                    notc3=1 ;;
 	-fastmode)              fastmode=1 ;;
-	-quicktest)            quicktest=1 ;;
+	-quicktest)             forward+=(-quicktest) ;;
+	-notc)                      notc=1 ; forward+=(-notc) ;;
+	-notc3)                     notc=1 ; forward+=(-notc3) ;;
+	-tc2)                        tc2=1 ; forward+=(-tc2) ;;
+	-tc3)                        tc3=1 ; forward+=(-tc3) ;;
 	-*)
-	    fatal "Parameter error"
-    exit 1 ;;
-*)  break ;; # terminate while loop
+	    fatal "Unknown option: $1" ;;
+	*)
+	    fatal "Unexpected argument: $1" ;;
     esac
     shift
 done
 
-[[ -e $srcbase ]] || srcbase=$(dirname "$srcdesc")
-[[ -e $tgtbase ]] || tgtbase=$(dirname "$tgtdesc")
+[[ -n $srcdesc ]] || fatal "Parameter error: -src-description is required"
+[[ -n $tgtdesc ]] || fatal "Parameter error: -tgt-description is required"
 [[ -s $srcdesc ]] || fatal "Source description $srcdesc does not exist"
 [[ -s $tgtdesc ]] || fatal "Target description $tgtdesc does not exist"
 
-echo $cmd >>$launchlist-genlog.txt
+if [[ -z $srcbase ]] ; then srcbase=$(dirname "$srcdesc")
+else [[ -d $srcbase ]] || fatal "Parameter error: -src-base is not a directory: $srcbase" ; fi
+if [[ -z $tgtbase ]] ; then tgtbase=$(dirname "$tgtdesc")
+else [[ -d $tgtbase ]] || fatal "Parameter error: -tgt-base is not a directory: $tgtbase" ; fi
 
-qt= ; [[ $quicktest ]] && qt="-quicktest"
+[[ $tc2 == 1 && $tc3 == 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
+[[ $notc == 1 && ( $tc2 == 1 || $tc3 == 1 ) ]] && fatal "Parameter error: -notc is incompatible with -tc2 and -tc3"
 
-procs=$(nproc --all)
-[[ $threads =~ [0-9]?[0-9] ]] || fatal "Threads must be a number smaller than $procs ($threads)"
-[[ $threads -gt $procs ]] && fatal "Threads must be a number smaller than $procs ($threads)"
+procs=$(nproc --all 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+[[ $threads =~ ^[1-9][0-9]*$ ]] || fatal "Parameter error: -threads requires a positive integer, got '$threads'"
+[[ $threads -le $procs ]] || fatal "Parameter error: -threads ($threads) exceeds the number of processors ($procs)"
 
-cat /dev/null >$launchlist || fatal "Could not write to $launchlist"
+echo "$cmd" >>"$launchlist-genlog.txt"
 
-cseg=0
-set -- $(cat "$srcdesc" | grep -v '^#' | head -n 1 | tr ',' ' ' | tr '[A-Z]' '[a-z]')
-srcitemn=$#
-enns=$(seq $srcitemn 7 | tr '[0-9]' 'n')
-read eins zwei drei vier funf sechs sieben acht <<<$( echo $* $enns )
-set -- $(head -n 1 "$tgtdesc" | tr ',' ' ' | tr '[A-Z]' '[a-z]')
-tgtitemn=$#
-enns=$(seq $tgtitemn 7 | tr '[0-9]' 'n')
-read ett tva tre fyra fem sex sju atta <<<$( echo $* $enns)
+### Description files
 
-atlasn=$(cat "$srcdesc" | grep -v '^#' | tail -n +2 | grep , | wc -l)
-[[ $loocv ]] && (( atlasn -= 1 ))
-tail -n +2  "$tgtdesc" | grep -v ^# | grep -v -e '^[[:space:]]*$' | while IFS='\n' read tgtline ; do
-    tgtargc=0
-    unset tgtarr ; declare -A tgtarr
-    tgtArgs=()
-    read tgtarr["$ett"] tgtarr["$tva"] tgtarr["$tre"] tgtarr["$fyra"] tgtarr["$fem"] tgtarr["$sex"] tgtarr["$sju"] tgtarr["$atta"] <<<$(echo $tgtline | tr ',' ' ')
-    tgtid=${tgtarr["id"]}
-    [[ -n ${tgtarr["id"]} ]]                && (( tgtargc += 1 )) && tgtArgs+=(-tgtid "${tgtarr["id"]}")                              && unset tgtarr["id"]
-    [[ -n ${tgtarr["mri"]} ]]               && (( tgtargc += 1 )) && tgtArgs+=(-tgtmri "$tgtbase/${tgtarr["mri"]}")            && unset tgtarr["mri"]
-    [[ -n ${tgtarr["brainmask"]} ]]         && (( tgtargc += 1 )) && tgtArgs+=(-tgtmask "$tgtbase/${tgtarr["brainmask"]}")     && unset tgtarr["brainmask"]
-    [[ -n ${tgtarr["onepad"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgtop "$tgtbase/${tgtarr["onepad"]}")          && unset tgtarr["onepad"]
-    [[ -n ${tgtarr["tc3raw"]} ]]            && (( tgtargc += 1 )) && tgtArgs+=(-tgttc3raw "$tgtbase/${tgtarr["tc3raw"]}")         && unset tgtarr["tc3raw"]
-    [[ -n ${tgtarr["pretransformation"]} ]] && (( tgtargc += 1 )) && tgtArgs+=(-tpn "$tgtbase/${tgtarr["pretransformation"]}") && unset tgtarr["pretransformation"]
-
-    tgtlabels=""
-    for i in ${!tgtarr[@]} ; do
-	[[ $i == "n" ]] && continue
-	(( tgtargc += 1 ))
-	tgtArgs+=(-tgtlabels "$i:$tgtbase/${tgtarr["$i"]}")
+# split_row <line>: set FIELDS to the comma-separated fields of the line, with
+# surrounding whitespace removed. Empty fields are kept, trailing ones included.
+split_row() {
+    local f i
+    IFS=, read -r -a FIELDS <<< "$1,_"
+    unset "FIELDS[${#FIELDS[@]}-1]"
+    for i in "${!FIELDS[@]}" ; do
+        f=${FIELDS[i]}
+        f=${f#"${f%%[![:space:]]*}"}
+        f=${f%"${f##*[![:space:]]}"}
+        FIELDS[i]=$f
     done
-    [[ $tgtargc -gt $tgtitemn ]] && fatal "CSV items do not match header in $tgtdesc"
+}
 
-    cat "$srcdesc" | grep -v '^#' | grep -v -e '^[[:space:]]*$' | tail -n +2 | while IFS='\n' read srcline ; do
-	unset srcarr ; declare -A srcarr
-	maperArgs=("${tgtArgs[@]}" $qt -atlasn "$atlasn" -output-dir "$outdir" -threads "$threads")
-	srcargc=0
-	read srcarr["$eins"] srcarr["$zwei"] srcarr["$drei"] srcarr["$vier"] srcarr["$funf"] srcarr["$sechs"] srcarr["$sieben"] srcarr["$acht"] <<<$(echo $srcline | tr ',' ' ')
-	[[ $loocv ]] && [[ $tgtid == ${srcarr["id"]} ]] && continue
-	[[ -n ${srcarr["id"]} ]]                && (( srcargc += 1 )) && maperArgs+=(-srcid "${srcarr["id"]}")                              && unset srcarr["id"]
-	[[ -n ${srcarr["mri"]} ]]               && (( srcargc += 1 )) && maperArgs+=(-srcmri "$srcbase/${srcarr["mri"]}")            && unset srcarr["mri"]
-	[[ -n ${srcarr["brainmask"]} ]]         && (( srcargc += 1 )) && maperArgs+=(-srcmask "$srcbase/${srcarr["brainmask"]}")     && unset srcarr["brainmask"]
-	[[ -n ${srcarr["onepad"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srcop "$srcbase/${srcarr["onepad"]}")          && unset srcarr["onepad"]
-	[[ -n ${srcarr["tc3raw"]} ]]            && (( srcargc += 1 )) && maperArgs+=(-srctc3raw "$srcbase/${srcarr["tc3raw"]}")         && unset srcarr["tc3raw"]
-	[[ -n ${srcarr["pretransformation"]} ]] && (( srcargc += 1 )) && maperArgs+=(-spn "$srcbase/${srcarr["pretransformation"]}") && unset srcarr["pretransformation"]
-	srclabels=""
-	for i in ${!srcarr[@]} ; do
-	    [[ $i == "n" ]] && continue
-	    (( srcargc += 1 ))
-	    maperArgs+=(-srclabels "$i:$srcbase/${srcarr["$i"]}")
-	done
-	[[ $srcargc -gt $srcitemn ]] && fatal "CSV items do not match header in $srcdesc"
+# option_for <src|tgt> <column>: set OPT to the maper option for a column;
+# empty for a column that names a label set.
+option_for() {
+    OPT=
+    case $2 in
+        id)                OPT=-$1id ;;
+        mri)               OPT=-$1mri ;;
+        brainmask)         OPT=-$1mask ;;
+        onepad)            OPT=-$1op ;;
+        tc3raw)            OPT=-$1tc3raw ;;
+        pretransformation) if [[ $1 == src ]] ; then OPT=-spn ; else OPT=-tpn ; fi ;;
+    esac
+}
 
-	[[ -n "$srccache" ]] && maperArgs+=(-srccache "$srccache")
-	[[ -n "$tgtcache" ]] && maperArgs+=(-tgtcache "$tgtcache")
-        [[ $notc3 == 1 ]] && maperArgs+=(-notc3)
-	if [[ ! $fastmode ]] ; then
-	    $pdir/maper -dry-run "${maperArgs[@]}"  >/dev/null
-	    fi
-	printf "%q " "$pdir"/maper ${maperArgs[@]} | sed 's/^[[:blank:]]*//; s/[[:blank:]]*$//' >>$launchlist
-	printf "\n" >>$launchlist
+missing=()
+
+# load_description <src|tgt> <file> <base>
+# Sets ${kind}_ids[n] to the id of row n and ${kind}_args_<n> to the maper
+# options that describe it. Errors that do not depend on the file system end
+# the script at once; missing files are collected in $missing.
+load_description() {
+    local kind=$1 file=$2 base=$3
+    local -n ids=${kind}_ids
+    local lineno=0 have_header="" line text c n name value path id
+    local -a cols
+    local -A seen=() colseen=()
+
+    while IFS= read -r line || [[ -n $line ]] ; do
+        lineno=$(( lineno + 1 ))
+        line=${line%$'\r'}
+        text=${line#"${line%%[![:space:]]*}"}
+        if [[ -z $text || $text == \#* ]] ; then continue ; fi
+
+        if [[ -z $have_header ]] ; then
+            split_row "$line"
+            cols=("${FIELDS[@],,}")
+            for name in "${cols[@]}" ; do
+                [[ -n $name ]] || die "$file:$lineno: empty column name in the header"
+                [[ -z ${colseen[$name]} ]] || die "$file:$lineno: column $name appears more than once"
+                colseen[$name]=1
+                option_for "$kind" "$name"
+                if [[ -z $OPT && $name == *[:/[:space:]]* ]] ; then
+                    die "$file:$lineno: invalid column name '$name' (a label set name must not contain ':', '/' or whitespace)"
+                fi
+            done
+            [[ -n ${colseen[id]} ]] || die "$file: the header has no id column"
+            [[ -n ${colseen[mri]} || -n ${colseen[onepad]} ]] || die "$file: the header needs an mri or onepad column"
+            have_header=1
+            continue
+        fi
+
+        split_row "$line"
+        [[ ${#FIELDS[@]} -eq ${#cols[@]} ]] \
+            || die "$file:$lineno: expected ${#cols[@]} fields (as in the header), found ${#FIELDS[@]}"
+
+        id=
+        for c in "${!cols[@]}" ; do
+            if [[ ${cols[c]} == id ]] ; then id=${FIELDS[c]} ; fi
+        done
+        [[ -n $id ]] || die "$file:$lineno: empty id"
+        [[ -z ${seen[$id]} ]] || die "$file:$lineno: duplicate id $id"
+        seen[$id]=1
+
+        n=${#ids[@]}
+        ids+=("$id")
+        declare -ga "${kind}_args_$n=()"
+        local -n args=${kind}_args_$n
+        args+=("-${kind}id" "$id")
+
+        for c in "${!cols[@]}" ; do
+            name=${cols[c]} ; value=${FIELDS[c]}
+            if [[ $name == id ]] ; then continue ; fi
+            option_for "$kind" "$name"
+            if [[ -z $value ]] ; then
+                if [[ -z $OPT && $kind == src ]] ; then
+                    die "$file:$lineno: $id: no value for label set $name"
+                fi
+                continue
+            fi
+            if [[ $value == /* ]] ; then path=$value ; else path=$base/$value ; fi
+            if [[ -z $fastmode && ! -e $path ]] ; then
+                missing+=("$file:$lineno: $id: $name: file not found: $path")
+            fi
+            if [[ -n $OPT ]] ; then args+=("$OPT" "$path") ; else args+=("-${kind}labels" "$name:$path") ; fi
+        done
+        unset -n args
+    done < "$file"
+
+    [[ -n $have_header ]] || die "$file: no header line"
+    [[ ${#ids[@]} -gt 0 ]] || die "$file: no rows"
+}
+
+src_ids=()
+tgt_ids=()
+load_description src "$srcdesc" "$srcbase"
+load_description tgt "$tgtdesc" "$tgtbase"
+
+if [[ ${#missing[@]} -gt 0 ]] ; then
+    msg "${missing[@]:0:20}"
+    if [[ ${#missing[@]} -gt 20 ]] ; then msg "... and $(( ${#missing[@]} - 20 )) more" ; fi
+    die "${#missing[@]} file(s) named in the descriptions do not exist (-fastmode skips this check)"
+fi
+
+### Launchlist
+
+declare -A is_atlas=()
+for id in "${src_ids[@]}" ; do is_atlas[$id]=1 ; done
+
+# emit_pair <target index> <source index>: one launchlist line
+emit_pair() {
+    local -n targs=tgt_args_$1
+    local -n sargs=src_args_$2
+    local -a call=("${targs[@]}" -atlasn "$atlasn" -output-dir "$outdir" -threads "$threads" "${sargs[@]}")
+    local line
+    if [[ -n $srccache ]] ; then call+=(-srccache "$srccache") ; fi
+    if [[ -n $tgtcache ]] ; then call+=(-tgtcache "$tgtcache") ; fi
+    call+=("${forward[@]}")
+    line=$(printf '%q ' "$pdir"/maper "${call[@]}")
+    printf '%s\n' "${line% }"
+}
+
+( : >>"$launchlist" ) 2>/dev/null || die "Could not write to $launchlist"
+
+npairs=0
+{
+    for t in "${!tgt_ids[@]}" ; do
+        # The number of atlases that will contribute to this target: with
+        # -loocv an image that is itself an atlas does not register to itself.
+        atlasn=${#src_ids[@]}
+        if [[ -n $loocv && -n ${is_atlas[${tgt_ids[t]}]} ]] ; then atlasn=$(( atlasn - 1 )) ; fi
+        for s in "${!src_ids[@]}" ; do
+            if [[ -n $loocv && ${tgt_ids[t]} == "${src_ids[s]}" ]] ; then continue ; fi
+            emit_pair "$t" "$s"
+            npairs=$(( npairs + 1 ))
+        done
     done
-done
+} >"$launchlist"
 
+if [[ $npairs -eq 0 ]] ; then msg "Warning: no source/target pairs, the launchlist is empty" ; fi

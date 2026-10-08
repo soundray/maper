@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
+ppath=$(realpath "${BASH_SOURCE[0]}")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
 set -e
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 startsec=$(date +%s)
@@ -17,6 +18,9 @@ usage() {
             fuse result from multiple transformations to same target if available.
 
     Usage: $pname -srcid SourceID -tgtid TargetID <src_spec> <tgt_spec> -output-dir /path/to/write/output
+
+           $pname -h | --help
+              Show this text.
 
     <source_spec> consists of either
 
@@ -97,12 +101,18 @@ usage() {
        Perform three-class (CSF, GM, WM) tissue mapping and prealign on the basis
        of two tissue classes (CSF and merged GMWM)
 
+    [-threads N]
+       Number of threads for MIRTK and NiftySeg (positive integer, default 1)
+
     [-quicktest]
        For accelerated run (very coarse result)
 
     [-dry-run]
-       Test if options correctly specified. Perform label fusion if -atlasn also
-       specified.
+       Test if options correctly specified. No results are written to -output-dir
+       or to the caches (-debug still saves the working directory). Performs
+       label fusion of already existing results if
+       -atlasn is also specified (without the tissue-class based output, which
+       needs tissue maps that a dry run does not compute).
 
     [-verbose]
        To show registration output on stdout
@@ -123,19 +133,17 @@ type seg_maths >/dev/null 2>&1 || fatal "NiftySeg not found. Please ensure seg_m
 quicktest=
 srcop=null
 srcmri=null
-isrcsegs=
+srclabelspecs=()
 srcmask=null
-nsrcsegs=0
 srctc3raw=null
-spn=neutral.dof.gz
+spn=$pdir/neutral.dof.gz
 srccache=
 tgtop=null
 tgtmri=null
 tgtmask=null
-itgtsegs=
-ntgtsegs=0
+tgtlabelspecs=()
 tgttc3raw=null
-tpn=neutral.dof.gz
+tpn=$pdir/neutral.dof.gz
 tgtcache=
 outdir=$PWD/maper-$$
 atlasn=
@@ -148,25 +156,38 @@ notc=
 notc3=
 debug=
 threads=1
-[[ $# -lt 10 ]] && fatal "Parameter error"
+
+# Absolute path of a file argument. realpath fails when a parent directory is
+# missing; fall back to the argument as given so require_file can report it.
+abspath() { realpath -- "$1" 2>/dev/null || printf '%s\n' "$1" ; }
+
+# Options that take a value, so that a missing value is reported by name
+valopts=" -srcid -srcop -srcmri -srctc3raw -srcmask -srclabels -spn -srccache"
+valopts+=" -tgtid -tgtop -tgtmri -tgttc3raw -tgtmask -tgtlabels -tpn -tgtcache"
+valopts+=" -output-dir -atlasn -threads "
+
 while [ $# -gt 0 ]
 do
+    if [[ $valopts == *" $1 "* && $# -lt 2 ]] ; then
+        fatal "Parameter error: option $1 requires a value"
+    fi
     case "$1" in
+	-h|--help)       usage ; exit 0 ;;
 	-srcid)          srcid="$2" ; shift ;;
-	-srcop)          srcop=$(realpath "$2") ; shift ;;
-	-srcmri)        srcmri=$(realpath "$2") ; shift ;;
-	-srctc3raw)  srctc3raw=$(realpath "$2") ; shift ;;
-	-srcmask)      srcmask=$(realpath "$2") ; shift ;;
-	-srclabels)   isrcsegs="$isrcsegs "$2 ; (( nsrcsegs += 1 )) ; shift ;;
-	-spn)              spn=$(realpath "$2") ; shift ;;
+	-srcop)          srcop=$(abspath "$2") ; shift ;;
+	-srcmri)        srcmri=$(abspath "$2") ; shift ;;
+	-srctc3raw)  srctc3raw=$(abspath "$2") ; shift ;;
+	-srcmask)      srcmask=$(abspath "$2") ; shift ;;
+	-srclabels)   srclabelspecs+=("$2") ; shift ;;
+	-spn)              spn=$(abspath "$2") ; shift ;;
 	-srccache)    srccache=$(realpath "$2") ; shift ;;
 	-tgtid)          tgtid="$2" ; shift ;;
-	-tgtop)          tgtop=$(realpath "$2") ; shift ;;
-	-tgtmri)        tgtmri=$(realpath "$2") ; shift ;;
-	-tgttc3raw)  tgttc3raw=$(realpath "$2") ; shift ;;
-	-tgtmask)      tgtmask=$(realpath "$2") ; shift ;;
-	-tgtlabels)   itgtsegs="$itgtsegs "$2 ; (( ntgtsegs += 1 )) ; shift ;;
-	-tpn)              tpn=$(realpath "$2") ; shift ;;
+	-tgtop)          tgtop=$(abspath "$2") ; shift ;;
+	-tgtmri)        tgtmri=$(abspath "$2") ; shift ;;
+	-tgttc3raw)  tgttc3raw=$(abspath "$2") ; shift ;;
+	-tgtmask)      tgtmask=$(abspath "$2") ; shift ;;
+	-tgtlabels)   tgtlabelspecs+=("$2") ; shift ;;
+	-tpn)              tpn=$(abspath "$2") ; shift ;;
 	-tgtcache)    tgtcache=$(realpath "$2") ; shift ;;
 	-output-dir)    outdir=$(realpath "$2") ; shift ;;
 	-atlasn)        atlasn="$2" ; shift ;;
@@ -183,40 +204,70 @@ do
 	-verbose)      verbose=1 ;;
 	-debug)          debug=1 ;;
 	-*)
-	    fatal "Parameter error" ;;
-*)  break ;; # terminate while loop
+	    fatal "Unknown option: $1" ;;
+	*)
+	    fatal "Unexpected argument: $1" ;;
     esac
     shift
 done
 
+[[ -n $srcid ]] || fatal "Parameter error: -srcid is required"
+[[ -n $tgtid ]] || fatal "Parameter error: -tgtid is required"
+[[ $threads =~ ^[1-9][0-9]*$ ]] || fatal "Parameter error: -threads requires a positive integer, got '$threads'"
+[[ -z $atlasn || $atlasn =~ ^[0-9]+$ ]] || fatal "Parameter error: -atlasn requires a number, got '$atlasn'"
+
+require_file() { [[ $2 == null || -e $2 ]] || fatal "Parameter error: file for $1 not found: $2" ; }
+require_file -srcop "$srcop"
+require_file -srcmri "$srcmri"
+require_file -srcmask "$srcmask"
+require_file -srctc3raw "$srctc3raw"
+require_file -spn "$spn"
+require_file -tgtop "$tgtop"
+require_file -tgtmri "$tgtmri"
+require_file -tgtmask "$tgtmask"
+require_file -tgttc3raw "$tgttc3raw"
+require_file -tpn "$tpn"
+
 export OMP_NUM_THREADS=$threads
+
+# Timing of the fusion lock, see "The fusion lock"
+lock_heartbeat=${MAPER_LOCK_HEARTBEAT:-15}
+lock_timeout=${MAPER_LOCK_TIMEOUT:-300}
+[[ $lock_heartbeat =~ ^[1-9][0-9]*$ ]] || die "MAPER_LOCK_HEARTBEAT must be a positive number of seconds, got '$lock_heartbeat'"
+[[ $lock_timeout =~ ^[1-9][0-9]*$ ]] || die "MAPER_LOCK_TIMEOUT must be a positive number of seconds, got '$lock_timeout'"
+[[ $lock_timeout -gt $(( 2 * lock_heartbeat )) ]] \
+    || die "MAPER_LOCK_TIMEOUT ($lock_timeout) must be longer than twice MAPER_LOCK_HEARTBEAT ($lock_heartbeat)"
 
 [[ $notc3 == 1 ]] && notc=1
 
-[[ $notc == 1 && $[ $tc3out + $tc3crisp + $tc3only ] > 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
+[[ $notc == 1 && $(( tc3out + tc3crisp + tc3only )) -gt 0 ]] && fatal "Parameter error: -notc (-notc3) is incompatible with -tc3 options"
 
-[[ $[ $tc2 + $tc3 ] > 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
+[[ $(( tc2 + tc3 )) -gt 1 ]] && fatal "Parameter error: only one of -tc2 and -tc3 is permitted"
 
 [[ $tc3 == 0 ]] && tc2=1
 
+# Label sets are given as name:file. Everything after the first colon is the path.
+parse_labelspecs() { # <array-name> <option> <kind: Source|Target> <spec>...
+    local -n result=$1 ; shift
+    local option=$1 ; shift
+    local kind=$1 ; shift
+    local spec name file
+    for spec in "$@" ; do
+        name=${spec%%:*} ; file=${spec#*:}
+        [[ $spec == *:* && -n $name && -n $file ]] \
+            || fatal "Parameter error: $option expects name:file, got '$spec'"
+        [[ -e $file ]] || fatal "Parameter error: $kind segmentation '$name' does not exist: $file"
+        # shellcheck disable=SC2034  # assigns to the array that "result" refers to
+        result["$name"]=$(realpath "$file")
+    done
+}
+
 declare -A sourceseg
-for i in $isrcsegs ; do
-    set -- $(echo $i | tr ':' ' ' )
-    segname=$1 ; shift
-    ii=$(realpath $1)
-    [[ -e $ii ]] || msg "Source seg $i does not exist"
-    sourceseg["$segname"]=$ii
-done
+parse_labelspecs sourceseg -srclabels Source "${srclabelspecs[@]}"
 [[ ${#sourceseg[@]} -lt 1 ]] && msg "No source segmentation defined"
 
 declare -A targetseg
-for i in $itgtsegs ; do
-    set -- $(echo $i | tr ':' ' ' )
-    segname=$1 ; shift
-    ii=$(realpath $1)
-    [[ -e $ii ]] || msg "Target seg $i does not exist"
-    targetseg["$segname"]=$ii
-done
+parse_labelspecs targetseg -tgtlabels Target "${tgtlabelspecs[@]}"
 
 baseoutdir=$outdir
 outdir="$outdir/$tgtid/$srcid-$tgtid"
@@ -233,17 +284,18 @@ progress() {
 }
 
 tc3() { ### Tissue classification
-    local input=$(realpath "$1") ; shift
+    local input outdir bn tdl
+    input=$(realpath "$1") ; shift
     # Expected: mri.nii.gz mask.nii.gz pre.dof.gz
     # Optional: tc3raw.nii.gz
-    local outdir=$(realpath "$1") ; shift
+    outdir=$(realpath "$1") ; shift
 
-    local bn=$(basename "$input")
-    local tdl=$(mktemp -d tc3."$bn".XXXXX)
-    cd $tdl
+    bn=$(basename "$input")
+    tdl=$(mktemp -d tc3."$bn".XXXXX)
+    cd "$tdl"
 
     if [[ -n $dryrun ]] ; then
-	      ( cd $outdir
+	      ( cd "$outdir"
 	        for i in csf gm wm gmwm wmr wml gmwmr gmwml crisp-csf crisp-gm crisp-wm crisp tc3 ; do
 		          touch $i.nii.gz
 	        done
@@ -263,7 +315,7 @@ tc3() { ### Tissue classification
     fi
 
     # Prepare left and right masks
-    mirtk transform-image $pdir/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
+    mirtk transform-image "$pdir"/rightmask.nii.gz rightmask-custom.nii.gz -invdof "$input"/pre.dof.gz -target mask.nii.gz
     seg_maths rightmask-custom.nii.gz -sub 1 -abs leftmask-custom.nii.gz
 
     # Generate crisp labels
@@ -305,13 +357,14 @@ regprop() {  ### Registration and label propagation
     local srcseg="$src"/srcseg.nii.gz
     local autosegdir="$outdir"/seg/
     #
-    local tdl=$(mktemp -d regprop.XXXXX)
+    local tdl
+    tdl=$(mktemp -d regprop.XXXXX)
     cd "$tdl"
     cp "$pdir"/neutral.dof.gz .
     ds=2.5 ; [[ $quicktest ]] && ds=10
     #
     if [[ -z $dryrun ]] ; then
-	      if [[ ! -e "$dof" ]] ; then
+	      if [[ ! -s "$dof" ]] ; then
             #
 	          mirtk compose-dofs "$src"/pre.dof.gz "$tgt"/pre.dof.gz prealign.dof.gz -scale 1 -1
 	          mirtk convert-dof prealign.dof.gz prealign.txt -input-format rigid -output-format aladin
@@ -320,22 +373,22 @@ regprop() {  ### Registration and label propagation
             #
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofout coarse0-0.dof.gz \
-		              -model Rigid -levels 4 $lastrigidlevel -threads $threads
+		              -model Rigid -levels 4 "$lastrigidlevel" -threads "$threads"
             #
 	          mirtk register \
 		              "$tgt"/mri.nii.gz "$src"/mri.nii.gz -dofin prealign.dof.gz -dofout coarse0-1.dof.gz \
-		              -model Rigid -levels 4 $lastrigidlevel -threads $threads
+		              -model Rigid -levels 4 "$lastrigidlevel" -threads "$threads"
             #
 	          topnmi=$(
 		            for i in neutral prealign coarse0-0 coarse0-1 ; do
 		                nmi=$(mirtk evaluate-similarity "$tgt"/mri.nii.gz "$src"/mri.nii.gz \
 					                      -metric NMI -noid -csv -precision 7 \
 					                      -dofin $i.dof.gz | tail -n 1)
-		                echo $nmi, $i
+		                echo "$nmi,$i"
 		            done | sort -rn | head -n 1 | cut -d , -f 2
 		              )
             msg "$topnmi is optimal"
-	          cp $topnmi.dof.gz coarse0.dof.gz
+	          cp "$topnmi".dof.gz coarse0.dof.gz
             #
 	          if [[ -z $notc ]] ; then
                 if [[ $tc3 == 1 ]] ; then
@@ -344,13 +397,13 @@ regprop() {  ### Registration and label propagation
                           "$src"/wmr.nii.gz "$src"/wml.nii.gz \
                           -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
                           -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
 		                mirtk register \
                           "$tgt"/csf.nii.gz "$tgt"/gm.nii.gz \
                           "$src"/csf.nii.gz "$src"/gm.nii.gz \
                           -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
                           -par "Energy function" "0.6 SSD(I1, I3 o T) + 0.4 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
                 fi
                 if [[ $tc2 == 1 ]] ; then
                     mirtk register \
@@ -358,33 +411,35 @@ regprop() {  ### Registration and label propagation
                           "$src"/gmwmr.nii.gz "$src"/gmwml.nii.gz \
                           -dofin coarse0.dof.gz -dofout coarse1.dof.gz -bg -1 -model Affine+FFD -levels 4 4 \
                           -par "Energy function" "0.5 SSD(I1, I3 o T) + 0.5 SSD(I2, I4 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
 		                mirtk register \
                           "$tgt"/csf.nii.gz "$src"/csf.nii.gz \
                           -dofin coarse1.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine+FFD -levels 3 2 \
                           -par "Energy function" "SSD(I1, I2 o T) + 1e-3 BE(T)" \
-		                      -ds $ds -threads $threads
+		                      -ds "$ds" -threads "$threads"
                 fi
 		            nextlevel=2
 	          else
 		            mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
                       -dofin coarse0.dof.gz -dofout coarse.dof.gz -bg -1 -model Affine -levels 4 1 \
-		                  -threads $threads
+		                  -threads "$threads"
 		            nextlevel=4
 	          fi
             #
 	          mirtk register "$tgt"/onepad.nii.gz "$src"/onepad.nii.gz \
 	    	          -dofin coarse.dof.gz -dofout fine.dof.gz \
-	    	          -bg 0 -model FFD -levels $nextlevel 1 -ds $ds -threads $threads \
+	    	          -bg 0 -model FFD -levels "$nextlevel" 1 -ds "$ds" -threads "$threads" \
 	    	          -par "Strict step length range" "No" \
 	    	          -par "Maximum streak of rejected steps" 2
 	          cp fine.dof.gz "$dof"
             #
 	          if [[ $debug ]] ; then
 		            mirtk transform-image "$src"/crisp.nii.gz prealign.nii -dofin prealign.dof.gz -target "$tgt"/crisp.nii.gz
+		            # shellcheck disable=SC2046  # unquoted on purpose: word splitting puts the lines of the table on one line
 		            echo -e $(mirtk evaluate-label-overlap "$tgt"/crisp.nii.gz prealign.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
 		            for i in coarse0 coarse1 fine ; do
 		                mirtk transform-image "$src"/crisp.nii.gz $i.nii -dofin $i.dof.gz -target "$tgt"/crisp.nii.gz
+		                # shellcheck disable=SC2046  # unquoted on purpose: word splitting puts the lines of the table on one line
 		                echo -e $(mirtk evaluate-label-overlap "$tgt"/crisp.nii.gz $i.nii -precision 3 -table | tail -n +2 | cut -d , -f 2,3,12)"\t "
 		            done
 		            echo
@@ -393,49 +448,93 @@ regprop() {  ### Registration and label propagation
     fi
     #
     # c=0
-    for i in ${!sourceseg[@]} ; do
+    for i in "${!sourceseg[@]}" ; do
 	      srcseg=${sourceseg["$i"]}
 	      if [[ -s $srcseg ]] ; then
 	          autoseg="$autosegdir"/$i.nii.gz
-	          autosegtc="$autosegdir"/$i-tcsep.nii.gz
-	          [[ -e "$autoseg" ]] && continue
-	          if [[ -n $dryrun ]] ; then touch "$dof" "$autoseg" ; continue ; fi
-	          mirtk transform-image $srcseg "$autoseg" \
-		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads $threads
+	          [[ -s "$autoseg" ]] && continue
+	          [[ -n $dryrun ]] && continue
+	          mirtk transform-image "$srcseg" "$autoseg" \
+		              -dofin "$dof" -target "$tgt"/onepad.nii.gz -interp "NN" -threads "$threads"
 	      fi
         ref=${targetseg[$i]}
         if [[ -s $ref ]] ; then
-            jc $ref $autoseg "$autosegdir/$i"-jc.csv "$autosegdir/$i"-meanjc.csv
+            jc "$ref" "$autoseg" "$autosegdir/$i"-jc.csv "$autosegdir/$i"-meanjc.csv
         fi
     done
     #
     cd ..
 }
 
-d2j() { d=$(echo $1 | sed -e 's/.*e.*/0/') ; echo scale=6 \; $d'/(2-'$d')' | bc -l ; }
+# d2j <dice>: the Jaccard index J = D / (2 - D) that goes with a Dice coefficient
+# D between 0 and 1, with six decimals (bc truncates). seg_stats may write D in
+# scientific notation (1.5e-05), which bc cannot read: only such a value goes
+# through printf, a plain decimal is handed to bc exactly as written. Prints NA
+# and returns 1 if D is not a number between 0 and 1.
+d2j() {
+    local d=$1
+    if [[ $d =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$ ]] ; then
+        if [[ -n ${BASH_REMATCH[2]} ]] ; then d=$(LC_ALL=C printf '%.20f' "$d") ; fi
+        # printf writes inf for an exponent beyond its range
+        if [[ $d =~ ^([0-9]+\.?[0-9]*|\.[0-9]+)$ && $(echo "$d <= 1" | bc -l) == 1 ]] ; then
+            echo "scale=6; $d / (2 - $d)" | bc -l
+            return
+        fi
+    fi
+    echo NA
+    return 1
+}
 
-jc() {
+# jc <reference> <labels> <individual.csv> <mean.csv>: overlap of a label image
+# with its reference as Jaccard indices, from the Dice values of seg_stats -d.
+# The lines of the seg_stats output that matter look like "L[<label>] = <dice>"
+# for each label and "M = <dice>" for the mean. Everything after the = is the
+# value as written, so that an exponent keeps its "e".
+# The body is a subshell on purpose: jc cds into a scratch directory, and the
+# caller (regprop, the fusion loop) relies on its own working directory.
+jc() (
     local refseg=$1 ; shift
     local tgtseg=$1 ; shift
     local indcsv=$1 ; shift
     local avgcsv=$1 ; shift
-    local region
-    local dsc
-    local tmpdir=$(mktemp -d jc.XXXX)
+    local tmpdir line lhs value region j mean=
+    tmpdir=$(mktemp -d jc.XXXX)
     cd "$tmpdir" || exit 1
     echo %%%%% JC %%%%%
-		seg_stats $refseg -d $tgtseg | grep = | tr -d 'a-zL\[\]=' >ls.csv
-		( echo "region,jc" ; cat ls.csv | grep -v M | while read region dsc ; do
-				  echo $region, $(d2j $dsc) ; done ) >"$indcsv"
-		echo $(d2j $(grep M ls.csv | rev | cut -d ' ' -f 1 | rev )) >"$avgcsv"
-}
+    seg_stats "$refseg" -d "$tgtseg" >stats.txt || msg "Warning: seg_stats failed on $tgtseg, no overlap values"
+    {
+        echo "region,jc"
+        while IFS= read -r line || [[ -n $line ]] ; do
+            [[ $line == *=* ]] || continue
+            lhs=${line%%=*}
+            read -r value _ <<<"${line#*=}"
+            if [[ $lhs == *M* ]] ; then mean=$value ; continue ; fi
+            region=${lhs//[][a-zL[:space:]]/}
+            if ! j=$(d2j "$value") ; then
+                msg "Warning: Dice value '$value' for label $region of $tgtseg is not a number between 0 and 1"
+            fi
+            echo "$region, $j"
+        done <stats.txt
+    } >"$indcsv"
+    if [[ -z $mean ]] ; then
+        msg "Warning: no mean Dice value in the seg_stats output for $tgtseg"
+        j=NA
+    elif ! j=$(d2j "$mean") ; then
+        msg "Warning: mean Dice value '$mean' for $tgtseg is not a number between 0 and 1"
+    fi
+    echo "$j" >"$avgcsv"
+)
 
 onepadgen() {
-    local mri=$(realpath "$1") ; shift
-    local mask=$(realpath "$1") ; shift
-    local onepad=$(realpath "$1") ; shift
+    local mri mask onepad tmpdir
+    mri=$(realpath "$1") ; shift
+    mask=$(realpath "$1") ; shift
+    onepad=$(realpath "$1") ; shift
+    local side=$1 ; shift   # src or tgt, for error messages
+    local label=Source ; [[ $side == tgt ]] && label=Target
+    local incomplete="$label specification incomplete. Either [-${side}op file] or [-${side}mri fileA -${side}mask fileB] must be provided on commandline."
 
-    local tmpdir=$(mktemp -d onepadgen.XXXX)
+    tmpdir=$(mktemp -d onepadgen.XXXX)
     cd "$tmpdir" || exit 1
 
     echo "MRI: $mri"
@@ -475,8 +574,7 @@ onepadgen() {
 
         010)
             echo "Case 6: Error - mask provided without MRI or onepad"
-            cd ..
-            return 1 ;;
+            fatal "$incomplete" ;;
 
         001)
             echo "Case 7: Generating mask and onepad from masked MRI"
@@ -486,17 +584,68 @@ onepadgen() {
 
         000)
             echo "Case 8: Error - no files provided"
-            cd ..
-            return 1 ;;
+            fatal "$incomplete" ;;
 
         *)
-            echo "Unexpected combination of inputs: OP:$has_op MASK:$has_mask MRI:$has_mri"
-            cd ..
-            rm -r "$tmpdir"
-            return 1 ;;
+            fatal "Unexpected combination of inputs: OP:$has_op MASK:$has_mask MRI:$has_mri" ;;
     esac
 
     cd ..
+}
+
+### Publishing files to places other jobs look at
+#
+# Jobs of the same target run at the same time and read each other's output: the
+# fusion counts and reads the results in the output directory, and every job looks
+# into the shared caches. Whatever lands there must be complete from the first
+# moment it can be seen, so it is written under a temporary name next to its
+# destination and then renamed, which is atomic.
+
+# publish <file> <destination file>
+publish() {
+    local tmp="$2.tmp.$$"
+    if cp "$1" "$tmp" && mv -f "$tmp" "$2" ; then return 0 ; fi
+    rm -f "$tmp"
+    return 1
+}
+
+# stage_out <directory> <destination>: publish every file below <directory>
+stage_out() {
+    local f
+    while IFS= read -r -d '' f ; do mkdir -p "$2/$f" ; done < <(cd "$1" && find . -type d -print0)
+    while IFS= read -r -d '' f ; do publish "$1/$f" "$2/$f" ; done < <(cd "$1" && find . -type f -print0)
+}
+
+# install_dir <directory> <destination>: give the directory the name <destination>, which
+# nothing has, in one step; fails if <destination> exists. Only what POSIX has is used, so
+# this works with the mv of macOS and the other BSDs: they have no -T ("<destination> is the
+# new name, not a directory to move into"). Where <destination> exists as a directory, mv
+# puts <directory> inside it, and that is a failure -- taken back out again.
+install_dir() {
+    local base=${1##*/}
+    [[ ! -e $2 ]] || return 1
+    mv "$1" "$2" 2>/dev/null || return 1
+    if [[ -e $2/$base ]] ; then rm -rf "${2:?}/$base" ; return 1 ; fi
+}
+
+# publish_cache <directory with the files> <cache directory>
+# The cache directory is created empty at the start, and a job that finds fewer than
+# nine files in it generates them itself. The full directory takes its place in one
+# step (an empty directory makes way for it). If another job was first, its directory
+# stays: both hold the same files.
+# A cache that cannot be written is not an error, only slower.
+publish_cache() {
+    local tmp
+    if ! tmp=$(mktemp -d "$2.tmp.XXXXXX") || ! cp "$1"/* "$tmp"/ ; then
+        msg "Warning: could not write the cache $2 -- not caching"
+        if [[ -n $tmp ]] ; then rm -rf "$tmp" ; fi
+        return 0
+    fi
+    rmdir "$2" 2>/dev/null || true
+    if ! install_dir "$tmp" "$2" ; then
+        rm -rf "$tmp"
+        if [[ -z $(ls -A "$2" 2>/dev/null) ]] ; then msg "Warning: could not publish the cache $2 -- not caching" ; fi
+    fi
 }
 
 ###
@@ -506,7 +655,7 @@ mkdir -p "$outdir" || fatal "Could not create output directory $outdir"
 
 if [[ -n $srccache ]] ; then
     srccache_=$srccache/$srcid
-    if mkdir -p $srccache_ ; then
+    if mkdir -p "$srccache_" ; then
 	msg "Source cache $srccache/$srcid okay"
     else
 	msg "Could not create source cache $srccache/$srcid -- not caching source intermediates"
@@ -516,7 +665,7 @@ fi
 
 if [[ -n $tgtcache ]] ; then
     tgtcache_=$tgtcache/$tgtid
-    if mkdir -p $tgtcache_ ; then
+    if mkdir -p "$tgtcache_" ; then
 	msg "Target cache $tgtcache/$tgtid okay"
     else
 	msg "Could not create target cache $tgtcache/$tgtid -- not caching target intermediates"
@@ -525,37 +674,177 @@ if [[ -n $tgtcache ]] ; then
 fi
 
 td=$(tempdir)
-trap finish EXIT
+### The fusion lock
+#
+# Of all the jobs for a target only one at a time may fuse. The lock is a directory
+# that is made complete -- it holds the file "owner", host:pid of the holder --
+# under a temporary name and then renamed into place (install_dir), so nobody ever
+# sees one without an owner, and the rename fails while the lock exists. Letting go
+# is a rename as well, see drop_lock.
+#
+# A job killed with SIGKILL (the last resort of a cluster at the wall time limit)
+# cannot release its lock, and the lock would block the fusion of the target for
+# good. So the holder touches its owner file every $lock_heartbeat seconds, and a
+# lock whose owner file has not been touched for $lock_timeout seconds is taken
+# over. Where the holder runs does not matter: the age is the difference of two
+# modification times that the file system itself gave, the owner file's and that
+# of a probe file made on the spot, so clocks of different hosts do not enter.
+# MAPER_LOCK_HEARTBEAT and MAPER_LOCK_TIMEOUT (seconds) change the defaults.
+#
+# A job that finds a dead holder's lock before the timeout has passed cannot
+# know that the holder is dead and leaves the work to it, as it would for a
+# living one. The next run for the target after the timeout, for instance of any
+# one pair that was done before, takes the lock over and fuses.
+
+mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null ; }
+
+# file_age <file>: seconds since the file was modified, by the clock of its file system
+file_age() {
+    local probe now modified
+    probe=$(mktemp "$baseoutdir/.fusion-probe.XXXXXX") || return 1
+    now=$(mtime "$probe")
+    rm -f "$probe"
+    modified=$(mtime "$1") || return 1
+    [[ -n $now && -n $modified ]] || return 1
+    echo $(( now - modified ))
+}
+
+# alive <pid>: does the process exist, and is it not a zombie waiting to be reaped?
+alive() {
+    local stat
+    kill -0 "$1" 2>/dev/null || return 1
+    if [[ -r /proc/$1/stat ]] ; then
+        stat=$(< "/proc/$1/stat")
+        [[ ${stat##*) } != Z* ]]
+    fi
+}
+
+# try_lock <lock>: become the holder if there is none
+try_lock() {
+    local stage
+    stage=$(mktemp -d "$baseoutdir/.fusion-tmp.XXXXXX") || die "Cannot create files in $baseoutdir"
+    printf '%s:%s\n' "${HOSTNAME:-$(uname -n)}" "$$" > "$stage/owner" || die "Cannot create files in $baseoutdir"
+    if install_dir "$stage" "$1" ; then return 0 ; fi
+    rm -rf "$stage"
+    return 1
+}
+
+# drop_lock <lock>: remove the lock in one step, by renaming it. Emptying it first and then
+# removing the directory would leave a moment at which the lock is an empty directory,
+# which break_stale_lock takes over as one of an earlier version; the removal that
+# follows would then fail, or remove the new holder's lock.
+drop_lock() {
+    local gone
+    gone=$(mktemp -d "$baseoutdir/.fusion-gone.XXXXXX") || { rm -rf "$1" ; return 0 ; }
+    mv "$1" "$gone/lock" 2>/dev/null || true
+    rm -rf "$gone"
+}
+
+# break_stale_lock <lock>: remove the lock if its holder has been quiet for $lock_timeout
+# seconds. Several jobs may notice at the same time; one at a time may remove it, and
+# each looks again once it is its turn -- else a slow job could remove the lock of
+# the job that had taken over before it.
+break_stale_lock() {
+    local lock=$1 breaker=$1.break age owner
+    # a lock without an owner file is the empty directory of an earlier version of maper:
+    # ours are complete from the moment they can be seen. It has no heartbeat to go by.
+    if [[ -d $lock && ! -e $lock/owner ]] ; then
+        if rmdir "$lock" 2>/dev/null ; then
+            msg "Taking over the fusion lock $lock, which has no owner (left by an earlier version)"
+            return 0
+        fi
+        return 1
+    fi
+    [[ -e $lock/owner ]] || return 1
+    age=$(file_age "$lock/owner") || return 1
+    if [[ $age -le $lock_timeout ]] ; then
+        if [[ $age -gt $(( 2 * lock_heartbeat )) ]] ; then
+            msg "The fusion lock $lock was last heard of ${age}s ago from $(cat "$lock/owner" 2>/dev/null): left to it, taken over after ${lock_timeout}s"
+        fi
+        return 1
+    fi
+    if ! mkdir "$breaker" 2>/dev/null ; then
+        # someone else is removing it -- or died doing so, which the age of the claim shows
+        age=$(file_age "$breaker") && [[ $age -gt 60 ]] && rmdir "$breaker" 2>/dev/null
+        return 1
+    fi
+    owner=$(cat "$lock/owner" 2>/dev/null) || owner=unknown
+    if age=$(file_age "$lock/owner") && [[ $age -gt $lock_timeout ]] ; then
+        msg "Warning: the fusion lock $lock of $owner has been quiet for ${age}s: taking it over"
+        drop_lock "$lock"
+        rmdir "$breaker"
+        return 0
+    fi
+    rmdir "$breaker"
+    return 1
+}
+
+# While the lock is held, a background process touches the owner file. It ends
+# when this process does, however that happens, so that a killed holder's lock
+# goes quiet. It must not keep the caller's pipes open.
+start_heartbeat() {
+    (
+        trap 'kill "$sleeper" 2>/dev/null ; exit 0' TERM
+        while true ; do
+            sleep "$lock_heartbeat" & sleeper=$!
+            wait "$sleeper"
+            alive "$$" || exit 0
+            touch -c "$1/owner" 2>/dev/null
+        done
+    ) </dev/null >/dev/null 2>&1 &
+    heartbeat_pid=$!
+}
+
+stop_heartbeat() {
+    if [[ -n $heartbeat_pid ]] ; then
+        kill "$heartbeat_pid" 2>/dev/null || true
+        wait "$heartbeat_pid" 2>/dev/null || true
+        heartbeat_pid=
+    fi
+    return 0
+}
+
+# A fusion lock is held while fusing; release it on any exit, including a
+# set -e abort or SIGTERM. Only SIGKILL cannot be answered; for that case the
+# lock is refreshed while it is held and can be taken over, see "The fusion lock".
+fusion_lock=
+heartbeat_pid=
+on_exit() {
+    stop_heartbeat
+    [[ -n $fusion_lock ]] && drop_lock "$fusion_lock"
+    finish
+}
+trap on_exit EXIT
 cd "$td"
 touch null
 cp "$pdir"/neutral.dof.gz .
 mkdir -p tgt src regout/seg
 outdof="$outdir"/src-tgt.dof.gz
-[[ -e $outdof ]] && cp $outdof regout/
+[[ -e $outdof ]] && cp "$outdof" regout/
 set -- "$outdir"/seg/*
-[[ -e $1 ]] && cp $@ regout/seg/
+[[ -e $1 ]] && cp "$@" regout/seg/
 
 cp "$srcop" src/onepad.nii.gz
 cp "$srcmri" src/mri.nii.gz
 cp "$srcmask" src/mask.nii.gz
 [[ -z $notc ]] && cp "$srctc3raw" src/tc3raw.nii.gz
 cp "$spn" src/pre.dof.gz
-onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz \
-    || fatal "Source specification incomplete. Either [-srcop file] or [-srcmri fileA -srcmask fileB] must be provided on commandline."
+# Called as a plain statement (not as "onepadgen || fatal"): in that form set -e
+# is disabled inside the function and failed mirtk calls would go unnoticed.
+onepadgen src/mri.nii.gz src/mask.nii.gz src/onepad.nii.gz src
 
 cp "$tgtop" tgt/onepad.nii.gz
 cp "$tgtmri" tgt/mri.nii.gz
 cp "$tgtmask" tgt/mask.nii.gz
 [[ -z $notc ]] && cp "$tgttc3raw" tgt/tc3raw.nii.gz
 cp "$tpn" tgt/pre.dof.gz
-onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz \
-    || fatal "Target specification incomplete. Either [-tgtop file] or [-tgtmri fileA -tgtmask fileB] must be provided on commandline."
+onepadgen tgt/mri.nii.gz tgt/mask.nii.gz tgt/onepad.nii.gz tgt
 
 ### Main routine
 
 if [[ -z $notc ]] ; then
     set --
-    [[ -n $srccache_ ]] && set -- $srccache_/*
+    [[ -n $srccache_ ]] && set -- "$srccache_"/*
     if [[ $# -gt 8 ]] ; then
 	cp "$@" src
     else
@@ -565,7 +854,7 @@ if [[ -z $notc ]] ; then
     fi
 
     set --
-    [[ -n $tgtcache_ ]] && set -- $tgtcache_/*
+    [[ -n $tgtcache_ ]] && set -- "$tgtcache_"/*
     if [[ $# -gt 8 ]] ; then
 	cp "$@" tgt
     else
@@ -577,19 +866,32 @@ fi
 
 if [[ $tc3only == 0 ]] ; then
     msg "=== Registration and propagation ==="
-    regprop "$td"/src "$td"/tgt "$td"/regout | while read i ; do progress "$i" ; done
+    # Without pipefail the status of this pipeline is that of the progress loop,
+    # so regprop's own status has to be read from PIPESTATUS.
+    regprop "$td"/src "$td"/tgt "$td"/regout | while read -r i ; do progress "$i" ; done
+    regprop_status=${PIPESTATUS[0]}
+    [[ $regprop_status -eq 0 ]] || die "Registration and propagation failed (exit status $regprop_status)"
     msg "."
 fi
 
 ### Stage out results
 
-cp -r regout/* "$outdir"/
-[[ $debug ]] && cp -a $td "$outdir"
-[[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
-[[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
+# In a dry run regout holds only copies of results that already exist plus
+# placeholders, and the tissue-class maps are placeholders too: none of it
+# is written out, so a dry run cannot make a later real run skip its work.
+if [[ -z $dryrun ]] ; then
+    stage_out regout "$outdir"
+    [[ $tc3out ]] && cp tgt/tc3raw.nii.gz "$outdir"/tgt-tc3raw.nii.gz
+    [[ $tc3crisp ]] && cp tgt/crisp.nii.gz "$outdir"/tgt-tc3crisp.nii.gz
+fi
+[[ $debug ]] && cp -a "$td" "$outdir"
+
+# Fill the caches before a possible -tc3only exit: storing the tissue-class
+# maps for later runs is what -srccache/-tgtcache are for.
+[[ -z $dryrun && $fillsrccache == 1 && -n $srccache_ ]] && publish_cache src "$srccache_"
+[[ -z $dryrun && $filltgtcache == 1 && -n $tgtcache_ ]] && publish_cache tgt "$tgtcache_"
+
 [[ $tc3only -ne 0 ]] && exit 0
-[[ ! $dryrun ]] && [[ $fillsrccache == 1 ]] && [[ -n $srccache_ ]] && cp src/* $srccache_/
-[[ ! $dryrun ]] && [[ $filltgtcache == 1 ]] && [[ -n $tgtcache_ ]] && cp tgt/* $tgtcache_/
 
 ### Fusion if numbers suffice
 
@@ -597,43 +899,72 @@ fuse() {
     fused="$1" ; shift
     nfuse="$1" ; shift
     first="$1" ; shift
-    seg_maths "$first" -merge $[nfuse-1] 4 $* merged.nii
-    seg_LabFusion -in merged.nii -MV -out $fused
+    seg_maths "$first" -merge $(( nfuse - 1 )) 4 "$@" merged.nii
+    seg_LabFusion -in merged.nii -MV -out "$fused"
     rm merged.nii
 }
 
+# fuse_if_ready <label set>: fuse the results of the label set if there are enough
+# of them and it has not been done. Runs while the fusion lock is held.
+fuse_if_ready() {
+    local i=$1 f nready thisseg ref sep max
+    local -a results=()
+    for f in "$baseoutdir/$tgtid"/*-"$tgtid"/seg/"$i".nii.gz ; do
+        if [[ -s $f ]] ; then results+=("$f") ; fi
+    done
+    nready=${#results[@]}
+    [[ $nready -ge $atlasn ]] || return 0
+
+    # Fuse output
+    thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
+    [[ ! -s $thisseg.nii.gz ]] || return 0
+    fuse "$thisseg".nii.gz "$nready" "${results[@]}"
+
+    # Generate tissue-class separated output
+    if [[ -z $notc ]] ; then
+        if [[ -z $dryrun ]] ; then
+            read -r _ max <<< "$(seg_stats "$thisseg.nii.gz" -r)"
+            sep=$(( max + 1 ))
+            seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
+            cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
+        fi
+
+        # Compare fused with reference
+        ref=${targetseg["$i"]}
+        if [[ -s $ref ]] ; then
+            jc "$ref" "$thisseg".nii.gz "$thisseg"-indivjc.csv "$thisseg"-meanjc.csv
+        fi
+    fi
+}
+
+# Of all the jobs for a target, the last one to deliver its results has to do the
+# fusion, and only one job may do it. Each job therefore
+#   1. leaves a marker: "my results are in place, somebody has to look",
+#   2. tries to take the lock (see "The fusion lock"), also over a dead holder's; if
+#      another job holds it, it is done -- the holder is responsible for the marker, see 4,
+#   3. as lock holder removes the marker, and only then counts the results; every
+#      result published before the marker was made is therefore counted,
+#   4. lets go of the lock and looks at the marker again. If one has appeared in the
+#      meantime, a job that found the lock taken relies on this job: it starts over.
+# Counting before taking the lock, or not looking again after letting go, loses the
+# fusion when the last two jobs finish at about the same time.
 if [[ $atlasn -ge 3 ]] ; then
-    for i in ${!sourceseg[@]} ; do
-	      set -- "$baseoutdir"/$tgtid/*-$tgtid/seg/"$i".nii.gz
-	      if mkdir "$baseoutdir"/fusion-semaphore-$i-$tgtid 2>/dev/null ; then
-	          nready=$#
-	          if [[ $nready -ge $atlasn ]] ; then
-                #
-		            # Fuse output
-		            thisseg="$baseoutdir"/f$nready-"$i"-$tgtid
-                #
-		            if [[ ! -s $thisseg.nii.gz ]] ; then
-		                fuse "$thisseg".nii.gz $# $*
-                    #
-		                # Generate tissue-class separated output
-		                if [[ -z $notc ]] ; then
-			                  read min max <<< $( seg_stats "$thisseg.nii.gz" -r )
-			                  sep=$[max + 1]
-			                  seg_maths tgt/crisp.nii.gz -mul $sep -add "$thisseg".nii.gz "$thisseg"-tcsep-at$sep.nii.gz
-                        cp tgt/crisp.nii.gz "$thisseg-tc3crisp.nii.gz"
-                        #
-			                  # Compare fused with reference
-			                  ref=${targetseg["$i"]}
-                        if [[ -s $ref ]] ; then
-                            jc $ref "$thisseg".nii.gz "$thisseg"-indivjc.csv "$thisseg"-meanjc.csv
-			                  fi
-		                fi
-		            fi
-	          fi
-	          rm -r "$baseoutdir"/fusion-semaphore-$i-$tgtid
-	      fi
+    for i in "${!sourceseg[@]}" ; do
+        lock="$baseoutdir/fusion-semaphore-$i-$tgtid"
+        pending="$baseoutdir/fusion-pending-$i-$tgtid"
+        : > "$pending"
+        while try_lock "$lock" || { break_stale_lock "$lock" && try_lock "$lock" ; } ; do
+            fusion_lock=$lock
+            start_heartbeat "$lock"
+            rm -f "$pending"
+            fuse_if_ready "$i"
+            drop_lock "$lock"
+            stop_heartbeat
+            fusion_lock=
+            [[ -e $pending ]] || break
+        done
     done
 fi
 
 endsec=$(date +%s)
-msg "runtime: $[$endsec-$startsec] seconds"
+msg "runtime: $(( endsec - startsec )) seconds"

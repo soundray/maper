@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 
-ppath=$(realpath "$BASH_SOURCE")
+ppath=$(realpath "${BASH_SOURCE[0]}")
 pdir=$(dirname "$ppath")
 pname=$(basename "$ppath")
 
 set -e 
 
+# shellcheck source=generic-functions
 . "$pdir"/generic-functions
 
 usage() {
 cat <<EOF
 
-hammers_mith-ancillaries.sh - Prepare atlas database downloaded from 
+atlas-ancillaries.sh - Prepare atlas database downloaded from 
 https://brain-development.org/brain-atlases/adult-brain-atlases/individual-adult-brain-atlases-new/
 for MAPER.
 
 Usage: $pname \$DOWNLOAD \$ANCILLARIES
 
 \$DOWNLOAD is the directory path where the download from brain-development.org is stored. It should 
-contain a subdirectory Hammers_mith-n30r95
+contain a subdirectory Hammers-n30r95
 
 \$ANCILLARIES is a directory path where the script saves the ancillaries (preprocessed versions of 
 the T1-weighted images, brain masks, pre-transformation matrices, and a source description 
@@ -30,31 +31,31 @@ EOF
 [[ $# -eq 2 ]] || fatal "Parameter error. "
 
 atlasdb=$1 ; shift
-[[ -d $atlasdb/Hammers_mith-n30r95 ]] || fatal "Atlas database not found in $atlasdb"
+[[ -d $atlasdb/Hammers-n30r95 ]] || fatal "Atlas database not found in $atlasdb"
 
 ancilldb=$1 ; shift
-cd $ancilldb || fatal "Could not change directory to $ancilldb. "
+cd "$ancilldb" || fatal "Could not change directory to $ancilldb. "
 
 mkdir -p seg/seg95 || fatal "Could not create output directories in $ancilldb. "
 
 ### Download atlas ancillaries
 atlas=hammers_mith-ancillaries-n30r95
 if [[ ! -e $atlas.tar ]] ; then
-    dlcommand="wget -O -"
+    dlcommand=(wget -O -)
     # url=https://github.com/soundray/maper/releases/download/0.9.1-rc/$atlas.tar
     url=https://soundray.org/maper/$atlas.tar
-    type wget >/dev/null 2>&1 || dlcommand="curl -fL"
-    echo $dlcommand $url 
-    $dlcommand $url >$atlas.tar || fatal "Download failed. wget or curl must be installed"
+    type wget >/dev/null 2>&1 || dlcommand=(curl -fL)
+    echo "${dlcommand[*]}" "$url"
+    "${dlcommand[@]}" "$url" >"$atlas.tar" || fatal "Download failed. wget or curl must be installed"
 fi
 [[ ! -e $atlas.tar ]] && fatal "No tarfile found -- something went wrong"
 
-tar xf $atlas.tar || fatal "Atlas unpacking failed"
-rm $atlas.tar
+tar xf "$atlas.tar" || fatal "Atlas unpacking failed"
+rm "$atlas.tar"
 
 for a in {1..30} ; do 
-    aa=$(printf '%02g' $a)
-    cp $atlasdb/Hammers_mith-n30r95/a$aa-seg.nii.gz seg/seg95/a$a.nii.gz
+    aa=$(printf '%02g' "$a")
+    cp "$atlasdb/Hammers-n30r95/a$aa-seg.nii.gz" "seg/seg95/a$a.nii.gz"
 done
 
 cat >src-description.csv <<EOF

@@ -16,7 +16,7 @@ transformation between image-derived tissue probability maps, which is
 used as a starting point for registering the intensity images.
 Process yields are ca. 99.5% or higher (for example when segmenting
 [ADNI](http://adni.loni.usc.edu/) baseline T1-weighted images using
-the [Hammers<sub>mith</sub> Atlas
+the [Hammers Adult Brain Atlas
 Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)).
 Segmentation results tend to be plausible even in severe brain atrophy
 and other abnormal brain configurations.
@@ -96,15 +96,20 @@ To parallelize the above onto seven threads, replace the last line with
 cut -d ' ' -f 2- launchlist.sh | xargs -L 1 -P 7 maper
 ```
 
-### Use with the [Hammers<sub>mith</sub> Atlas Database](https://brain-development.org/brain-atlases/adult-brain-atlases/))
+### Use with the [Hammers Adult Brain Atlas Database](https://brain-development.org/brain-atlases/adult-brain-atlases/)
 
-Download and unpack the atlas database in `~/atlas`, then run
+Download and unpack the database in `~/atlas`. A download with the subdirectory
+`Hammers-n30r95` is prepared for MAPER with
 ```
 mkdir ~/atlas/ancillaries
-hammers_mith-ancillaries.sh ~/atlas ~/atlas/ancillaries
+atlas-ancillaries.sh ~/atlas ~/atlas/ancillaries
 ```
-This will download and unpack the ancillary data needed for MAPER in the 
-given location, including the source description csv file. Point 
+and one with the subdirectory `Hammers-n30r120` with
+```
+hammers-atlas-db-n30r120-ancillaries.sh ~/atlas ~/atlas/ancillaries
+```
+Either script downloads and unpacks the ancillary data needed for MAPER in the
+given location, including the source description csv file. Point
 `launchlist-gen` to this file via the `-src-description` option.
 
 ### Multithreaded registration
@@ -115,7 +120,55 @@ commands, if MIRTK is built with TBB support. This is less
 memory-intensive than shell-level parallelization. Use the `-threads` 
 option to `launchlist-gen` and `maper`.
 
+### Parallel runs and killed jobs
+
+Parallel `maper` jobs that write to the same output directory fuse a
+target's results once, after the last of them has finished. The job that
+does the fusion holds a lock directory (`fusion-semaphore-*`) and touches
+its `owner` file every `MAPER_LOCK_HEARTBEAT` seconds (default 15). If
+that job is killed outright (SIGKILL, power loss, an OOM kill), the lock
+stays behind, but the next `maper` run that finds it quiet for longer than
+`MAPER_LOCK_TIMEOUT` seconds (default 300) takes it over and carries on.
+The timeout must be longer than twice the heartbeat. Normal exits and
+SIGTERM release the lock themselves.
+
+If every job of a target finished while a dead job's lock still looked
+alive, nobody is left to fuse: re-run any one `maper` command of that
+target after the timeout has passed (it skips what is already done).
+
 Feedback welcome at metrimorphics@soundray.de
+
+### Tests
+
+The test suite uses [bats-core](https://github.com/bats-core/bats-core) and
+needs neither MIRTK nor NiftySeg: `tests/stubs` provides stand-ins that
+record their calls, create the expected output files and can be made to
+fail (`STUB_FAIL=mirtk:register`). The tests therefore cover `maper`'s
+control flow and argument handling, not registration quality.
+
+    bats tests/
+
+The two Python scripts (`canonicalize-nifti.py`, `reorient2std-nifti.py`)
+have pytest tests that build their images with nibabel, so no data files
+are needed (`pip install -r tests/requirements.txt`):
+
+    python3 -m pytest tests/
+
+`tests/lint.sh` runs shellcheck over all shell scripts and fails on any
+finding, down to style (settings in `.shellcheckrc`).
+
+`nix flake check` builds the Nix package and checks what it installs. It also
+runs a segmentation with the *installed* `maper`, with MIRTK and NiftySeg being
+the stubs again, and the installed scripts that prepare an atlas database. The
+package replaces `PATH` with a short list of store paths, so a command that
+exists on most systems but not there (`awk`, `hostname`, ...) would otherwise
+fail only on a user's machine. `nix-build default.nix` builds the same package
+without flakes, with the nixpkgs revision that `flake.lock` pins.
+`nix build .#container` builds the image that `build-sif` turns into an
+Apptainer image.
+
+The four checks run on GitHub Actions for every push and pull request
+(`.github/workflows/tests.yml`).
 
 ### Apptainer image
 

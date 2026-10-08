@@ -1,0 +1,4 @@
+# Needed by tests/test_nifti.py:  pip install -r tests/requirements.txt
+nibabel
+numpy
+pytest

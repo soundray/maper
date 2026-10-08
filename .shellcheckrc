@@ -1,0 +1,5 @@
+# Read by shellcheck (and by editors that run it) from the repository root.
+shell=bash
+# follow ". generic-functions" in the scripts that source it
+external-sources=true
+source-path=SCRIPTDIR

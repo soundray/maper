@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Test stub for MIRTK. Logs the call, creates the output file(s) the real tool
+# would create, and fails on demand: STUB_FAIL=mirtk:register[,mirtk:...]
+echo "mirtk $*" >> "${STUB_LOG:-/dev/null}"
+# the same call, one [bracket] per argument: tells an argument with a space in it from two
+if [[ -n ${STUB_LOG:-} ]] ; then { printf 'mirtk' ; printf ' [%s]' "$@" ; echo ; } >> "$STUB_LOG.args" ; fi
+sub=$1; shift
+if [[ ",${STUB_FAIL:-}," == *",mirtk:$sub,"* ]]; then
+    echo "stub: forced failure of mirtk $sub" >&2
+    exit 3
+fi
+mk() { echo stub > "$1"; }
+case $sub in
+    transform-image|dilate-image|convert-dof) mk "$2" ;;
+    compose-dofs) mk "$3" ;;
+    register|calculate-element-wise)
+        # what a registration prints to standard output, to be passed on by maper -verbose
+        [[ $sub == register && -n ${STUB_REGISTER_LINE:-} ]] && printf '%s\n' "$STUB_REGISTER_LINE"
+        while [[ $# -gt 0 ]]; do
+            [[ $1 == -dofout || $1 == -o ]] && mk "$2"
+            shift
+        done ;;
+    evaluate-similarity)
+        while [[ $# -gt 0 ]]; do [[ $1 == -dofin ]] && d=$2 ; shift ; done
+        case $d in
+            neutral.dof.gz)  echo 0.30 ;;
+            prealign.dof.gz) echo 0.40 ;;
+            coarse0-0.dof.gz) echo 0.50 ;;
+            *)               echo 0.60 ;;
+        esac ;;
+    evaluate-label-overlap) echo hdr ; echo "x,1,y,,,,,,,,0.9" ;;
+esac
+exit 0
