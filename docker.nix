@@ -5,6 +5,23 @@
 }:
 let
   maper = pkgs.callPackage ./default.nix {};
+
+  pythonEnv = pkgs.callPackage ./python-env.nix {};
+
+  shellTools = [
+    pkgs.diffutils
+    pkgs.file
+    pkgs.findutils
+    pkgs.gawk
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.gnutar
+    pkgs.gzip
+    pkgs.less
+    pkgs.util-linux
+    pythonEnv
+  ];
+
   env = pkgs.buildEnv {
     name = "maper-docker-env";
     paths = [
@@ -16,10 +33,11 @@ let
       pkgs.cacert
       pkgs.ants
     ]
+    ++ shellTools
     ++ pkgs.lib.optional (pincram != null) pincram
     ++ pkgs.lib.optional (posnorm != null) posnorm;
   };
-  # docs: https://nixos.org/nixpkgs/manual/#sec-pkgs-dockerTools
+
 in (pkgs.dockerTools.buildImage {
   name = "registry.oak.sphalerite.org/maper";
   tag = "latest";

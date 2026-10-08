@@ -13,11 +13,11 @@
 }:
 let
   inherit (pkgs) lib;
-  pythonEnv = pkgs.python3.withPackages (ps: [
-    ps.nibabel
-    ps.numpy
-  ]);
+
+  pythonEnv = pkgs.callPackage ./python-env.nix {};
+
   src = lib.cleanSource ./.;
+
   binpath = pkgs.lib.concatStringsSep ":" [
     "$out/bin" # sample needs maper on PATH
     "${pkgs.mirtk}/bin"
@@ -40,7 +40,7 @@ in pkgs.runCommand "maper" {
   };
 } ''
   mkdir -p $out/bin $out/lib/maper
-  cp ${src}/{maper,launchlist-gen,run-maper-example-generate.sh,generic-functions,atlas-ancillaries.sh,hammers-atlas-db-n30r120-ancillaries.sh,canonicalize-nifti.py,reorient2std-nifti.py} $out/lib/maper
+  cp ${src}/{maper,launchlist-gen,run-maper-example-generate.sh,generic-functions,atlas-ancillaries.sh,hammers-atlas-db-n30r120-ancillaries.sh,canonicalize-nifti.py,reorient2std-nifti.py,centre-origin-nifti.py} $out/lib/maper
   chmod u+w $out/lib/maper/generic-functions
   echo "export PATH='${binpath}'" >>$out/lib/maper/generic-functions
   sed -i "s^##nix-path-goes-here##^source $out/lib/maper/generic-functions^" $out/lib/maper/run-maper-example-generate.sh
@@ -51,4 +51,6 @@ in pkgs.runCommand "maper" {
     --add-flags "$out/lib/maper/canonicalize-nifti.py"
   makeWrapper ${pythonEnv}/bin/python "$out/bin/maper-reorient2std-nifti" \
     --add-flags "$out/lib/maper/reorient2std-nifti.py"
+  makeWrapper ${pythonEnv}/bin/python "$out/bin/maper-centre-origin-nifti" \
+    --add-flags "$out/lib/maper/centre-origin-nifti.py"
 ''
