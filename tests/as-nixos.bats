@@ -4,6 +4,7 @@
 # provides them); where that is not so, these tests are skipped.
 
 load test_helper
+bats_require_minimum_version 1.5.0     # for run -<status>
 
 setup() {
     setup_common
@@ -29,8 +30,7 @@ setup() {
 
 @test "as-nixos.sh: a PATH of /usr/bin:/bin has no bash in it, as on NixOS" {
     # what broke the launchlist-gen test: "#!/usr/bin/env bash" finds no bash there
-    run "$AS_NIXOS" env PATH=/usr/bin:/bin env bash -c true
-    [ "$status" -eq 127 ]
+    run -127 "$AS_NIXOS" env PATH=/usr/bin:/bin env bash -c true
     [[ $output == *bash* ]]               # env says that it cannot find bash
 }
 
