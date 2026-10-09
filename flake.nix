@@ -45,6 +45,17 @@
         default = maper;
       };
 
+      # nix develop: the tools to run the tests, pinned by flake.lock like
+      # everything else
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [
+          pkgs.bats
+          pkgs.bc
+          pkgs.shellcheck
+          (pkgs.python3.withPackages (ps: [ ps.pytest ps.nibabel ps.numpy ]))
+        ];
+      };
+
       # nix flake check: the package builds, installs what it should, and runs a stubbed
       # pipeline with the PATH the package gives it (tests/nix-checks.nix)
       checks.${system} = import ./tests/nix-checks.nix { inherit pkgs; };
