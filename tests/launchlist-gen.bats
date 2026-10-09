@@ -238,8 +238,17 @@ setup() { setup_common ; default_csvs ; }
 }
 
 @test "works on a machine without MIRTK and NiftySeg (only maper needs them)" {
+    # The tools are replaced by ones that fail, in front of everything else on PATH, the
+    # stubs of the tests included. (A PATH such as /usr/bin:/bin would do on most systems,
+    # but on NixOS it has no bash in it, and on a machine that has MIRTK it has MIRTK.)
+    local none="$BATS_TEST_TMPDIR/none" tool
+    mkdir "$none"
+    for tool in mirtk seg_EM seg_LabFusion seg_maths seg_stats ; do
+        printf '#!/usr/bin/env bash\necho "%s: not installed" >&2\nexit 127\n' "$tool" > "$none/$tool"
+        chmod +x "$none/$tool"
+    done
     LL="$BATS_TEST_TMPDIR/launchlist.sh"
-    run env PATH=/usr/bin:/bin "$LAUNCHLIST_GEN" -src-description "$FX/src.csv" \
+    PATH="$none:$PATH" run "$LAUNCHLIST_GEN" -src-description "$FX/src.csv" \
         -tgt-description "$FX/tgt.csv" -output-dir "$OUT" -launchlist "$LL"
     [ "$status" -eq 0 ]
     [ "$(ll_count)" -eq 3 ]
