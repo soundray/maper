@@ -13,7 +13,7 @@ command -v shellcheck >/dev/null || { echo "lint.sh: shellcheck not found" >&2 ;
 
 files=(
     maper launchlist-gen generic-functions build-sif ./*.sh
-    tests/stubs/* tests/test_helper.bash tests/lint.sh
+    tests/stubs/* tests/as-nixos.sh tests/test_helper.bash tests/lint.sh
 )
 
 # Every finding counts, down to style. Settings (bash, following generic-functions) are

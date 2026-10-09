@@ -191,6 +191,16 @@ While working on one thing, run only the tests that belong to it:
     python3 -m pytest tests/test_centre_origin.py -k "nan"
 
 `bats --print-output-on-failure` shows what a failing test printed.
+
+NixOS has no `/bin/bash` and no tools in `/usr/bin`; a script or test that assumes
+them fails there. On another Linux system, `tests/as-nixos.sh` runs a command in a
+layout where `/usr/bin` and `/bin` hold only `env` and `sh`, without changing the
+system:
+
+    tests/as-nixos.sh bats tests/
+
+The tools must come from the `nix-shell` above (anything in `/usr/bin` would be
+hidden), and it needs `unshare` and either root or user namespaces.
 A change to `maper` that adds or alters behaviour should come with a test in
 `tests/maper.bats`, written first and seen to fail; the helpers `run_maper`
 and `stub_calls` are in `tests/test_helper.bash`.
