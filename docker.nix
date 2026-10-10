@@ -1,3 +1,10 @@
+# The image for running maper pipelines. What is in it falls into three tiers, each
+# declared where it belongs, so that the maper package says truthfully what it needs:
+#   1. what maper and pincram need to run (MIRTK, NiftySeg ...)  -> default.nix
+#   2. what maper's ancillary scripts need (nibabel, numpy)       -> python-env.nix
+#   3. what the pipelines around maper use (ANTs for N4, scipy, which pincram needs, too,
+#      the shell tools, pincram and posnorm themselves)           -> here, and only here
+# Nothing of tier 3 is a dependency of the maper package; tests/nix-checks.nix checks that.
 {
   pkgs ? import <nixpkgs> {}
 , pincram ? null
@@ -6,9 +13,27 @@
 let
   maper = pkgs.callPackage ./default.nix {};
 
-  pythonEnv = pkgs.callPackage ./python-env.nix {};
+  # The one Python of the image serves tiers 2 and 3: the modules of python-env.nix, and
+  # scipy on top
+  pythonEnv = pkgs.callPackage ./python-env.nix {
+    extraPackages = ps: [ ps.scipy ];
+  };
 
-  shellTools = [
+  tier1 = [
+    maper
+    pkgs.mirtk
+    pkgs.niftyseg
+  ];
+
+  tier2 = [
+    pythonEnv
+  ];
+
+  tier3 = [
+    pkgs.ants # N4 bias field correction
+    pkgs.bashInteractive
+    pkgs.cacert
+    pkgs.coreutils
     pkgs.diffutils
     pkgs.file
     pkgs.findutils
@@ -19,23 +44,13 @@ let
     pkgs.gzip
     pkgs.less
     pkgs.util-linux
-    pythonEnv
-  ];
+  ]
+  ++ pkgs.lib.optional (pincram != null) pincram
+  ++ pkgs.lib.optional (posnorm != null) posnorm;
 
   env = pkgs.buildEnv {
     name = "maper-docker-env";
-    paths = [
-      maper
-      pkgs.mirtk
-      pkgs.niftyseg
-      pkgs.bashInteractive
-      pkgs.coreutils
-      pkgs.cacert
-      pkgs.ants
-    ]
-    ++ shellTools
-    ++ pkgs.lib.optional (pincram != null) pincram
-    ++ pkgs.lib.optional (posnorm != null) posnorm;
+    paths = tier1 ++ tier2 ++ tier3;
   };
 
 in (pkgs.dockerTools.buildImage {
@@ -54,5 +69,5 @@ in (pkgs.dockerTools.buildImage {
     cp -L ${pkgs.dockerTools.fakeNss}/etc/nsswitch.conf etc/nsswitch.conf
   '';
 }) // {
-  inherit env;
+  inherit env pythonEnv;
 }
