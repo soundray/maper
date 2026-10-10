@@ -26,6 +26,9 @@ let
 
   maper = import ../default.nix { inherit pkgs; };
   maperWithStubs = import ../default.nix { pkgs = pkgsWithStubs; };
+
+  # the image, without pincram and posnorm, which are inputs of the flake
+  container = import ../docker.nix { inherit pkgs; };
 in {
   # The package builds, and what it installs is complete and runnable
   package = pkgs.runCommand "maper-package-check" { } ''
@@ -56,6 +59,27 @@ in {
       if ./$c > $TMPDIR/$c.out 2>&1 ; then echo "$c without arguments should fail" >&2 ; exit 1 ; fi
       grep -q -i 'usage' $TMPDIR/$c.out || { echo "$c: no usage text" >&2 ; cat $TMPDIR/$c.out >&2 ; exit 1 ; }
     done
+    touch $out
+  '';
+
+  # The tiers of what the image holds (docker.nix): tier 3, which the pipelines around maper
+  # use (scipy, ANTs ...), is declared there and nowhere else; the maper package does not
+  # depend on it, so it does not carry it either
+  tiers = pkgs.runCommand "maper-tiers-check" { } ''
+    # the Python of the package has the modules of tier 2, not tier 3's scipy
+    py=$(grep -o '/[^ "]*/bin/python' ${maper}/bin/maper-canonicalize-nifti | head -n 1)
+    test -x "$py" || { echo "no interpreter found in the wrapper" >&2 ; exit 1 ; }
+    "$py" -c 'import nibabel, numpy'
+    if "$py" -c 'import scipy' 2> /dev/null ; then
+      echo "the Python of the maper package has scipy: tier 3 belongs in docker.nix only" >&2 ; exit 1
+    fi
+    # and ANTs is not on its PATH
+    if grep -q -i -- '-ants-[0-9]' ${maper}/lib/maper/generic-functions ; then
+      echo "ANTs is on the PATH of the maper package: tier 3 belongs in docker.nix only" >&2 ; exit 1
+    fi
+
+    # the Python of the image has the modules of both tiers
+    ${container.pythonEnv}/bin/python -c 'import nibabel, numpy, scipy'
     touch $out
   '';
 

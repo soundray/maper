@@ -217,3 +217,14 @@ This creates `maper.sif`. An alternative output filename can be supplied:
 
 The container contents are built from the nixpkgs revision pinned in
 `flake.lock`.
+
+The image holds more than MAPER needs, in three tiers, each declared in one place:
+
+1. what MAPER and pincram need to run (MIRTK, NiftySeg ...): `default.nix`
+2. what MAPER's ancillary scripts need (nibabel, numpy): `python-env.nix`
+3. what the pipelines around MAPER use (ANTs for N4 bias field correction, scipy, the
+   shell tools, pincram and posnorm themselves): `docker.nix`, and only there
+
+A tool for the pipelines around MAPER therefore goes into the `tier3` list of `docker.nix`,
+never into `default.nix` or `python-env.nix`: the MAPER package must not depend on it.
+`nix flake check` fails if scipy or ANTs find their way into the package.
