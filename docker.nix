@@ -4,7 +4,7 @@
 #   2. what maper's ancillary scripts need (nibabel, numpy)       -> python-env.nix
 #   3. what the pipelines around maper use (ANTs for N4, scipy, which pincram needs, too,
 #      the shell tools, pincram and posnorm themselves)           -> here, and only here
-# Nothing of tier 3 is a dependency of the maper package; tests/nix-checks.nix checks that.
+# Nothing of tier 3 is a dependency of the maper package.
 {
   pkgs ? import <nixpkgs> {}
 , pincram ? null

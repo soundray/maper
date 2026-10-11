@@ -227,4 +227,3 @@ The image holds more than MAPER needs, in three tiers, each declared in one plac
 
 A tool for the pipelines around MAPER therefore goes into the `tier3` list of `docker.nix`,
 never into `default.nix` or `python-env.nix`: the MAPER package must not depend on it.
-`nix flake check` fails if scipy or ANTs find their way into the package.
